@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Devlog.Core references NOTHING. No SQLite, no Win32, no ASP.NET.
+    This is what keeps derivation logic testable without a database.
+    If you are tempted to add a PackageReference here, the code belongs
+    in Devlog.Infrastructure instead.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+</Project>

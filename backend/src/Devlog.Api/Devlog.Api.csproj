@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Contracts/ stays separate from Endpoints/ on purpose: when the cloud
+    server arrives it references the contracts and writes its own endpoints.
+    Populated in Phase 4.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Devlog.Core\Devlog.Core.csproj" />
+  </ItemGroup>
+
+</Project>

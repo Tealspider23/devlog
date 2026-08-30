@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+
+    <!-- WinExe: no console window appears when the tray app starts -->
+    <OutputType>WinExe</OutputType>
+
+    <!-- Tray icon + context menu -->
+    <UseWindowsForms>true</UseWindowsForms>
+
+    <!-- Lets Phase 4 host a minimal API in this same process with no csproj change -->
+    <RootNamespace>Devlog.Host</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Devlog.Core\Devlog.Core.csproj" />
+    <ProjectReference Include="..\Devlog.Infrastructure\Devlog.Infrastructure.csproj" />
+    <ProjectReference Include="..\Devlog.Api\Devlog.Api.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog.Extensions.Hosting" Version="10.0.0" />
+    <PackageReference Include="Serilog.Settings.Configuration" Version="10.0.1" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.1.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="7.0.0" />
+  </ItemGroup>
+
+</Project>

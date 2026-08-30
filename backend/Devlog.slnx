@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Devlog.Api/Devlog.Api.csproj" />
+    <Project Path="src/Devlog.Core/Devlog.Core.csproj" />
+    <Project Path="src/Devlog.Host/Devlog.Host.csproj" />
+    <Project Path="src/Devlog.Infrastructure/Devlog.Infrastructure.csproj" />
+  </Folder>
+</Solution>
