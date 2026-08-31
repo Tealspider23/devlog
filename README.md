@@ -92,6 +92,6 @@ Built in phases. See [docs/architecture.md](docs/architecture.md) and [docs/sess
 
 - [x] **Phase 1** — collector, storage, seeder
 - [x] **Phase 2** — activities + sessionizer + classification
-- [ ] **Phase 3** — git enrichment
+- [x] **Phase 3** — git enrichment
 - [ ] **Phase 4** — local API + React UI
 - [ ] **Phase 5** — wins + weekly digest
