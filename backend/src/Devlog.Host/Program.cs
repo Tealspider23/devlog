@@ -14,7 +14,32 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
-        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(args);
+        // ContentRootPath MUST be pinned to the executable's own folder, not left
+        // at the default (Directory.GetCurrentDirectory()).
+        //
+        // The default silently breaks appsettings.json — including privacy
+        // settings like ExcludedProcesses and ExcludedTitlePatterns — for any
+        // launch that does not happen to have the exe's folder as the working
+        // directory: a tray-icon double-click, a Start Menu shortcut, Task
+        // Scheduler at logon, or simply running `& $exe` from a repo checkout.
+        // In every one of those cases the config providers looked for
+        // appsettings.json next to whatever the caller's CWD happened to be,
+        // found nothing, and every setting silently fell back to its C#
+        // hardcoded default with no error. AppContext.BaseDirectory is the one
+        // location that is correct regardless of how the process was started.
+        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+        {
+            Args = args,
+            ContentRootPath = AppContext.BaseDirectory
+        });
+
+        // Not an ASP.NET Core convention name, so it needs adding explicitly.
+        // Optional and reloadOnChange:false — most machines will not have one.
+        // This is where real local repo paths belong: appsettings.json is
+        // published to a public repo, and a machine's actual folder layout has
+        // no business being in it.
+        builder.Configuration.AddJsonFile("appsettings.local.json", optional: true, reloadOnChange: false);
+
         builder.AddDevlog();
 
         using var host = builder.Build();

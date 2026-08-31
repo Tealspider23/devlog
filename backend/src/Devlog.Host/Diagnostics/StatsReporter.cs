@@ -227,7 +227,10 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
             """
             SELECT s.id, s.start_utc, s.end_utc, s.project, s.category,
                    s.interruptions, s.deep_seconds, s.label,
-                   (SELECT COUNT(*) FROM activity a WHERE a.session_id = s.id) AS activity_count
+                   (SELECT COUNT(*) FROM activity a WHERE a.session_id = s.id) AS activity_count,
+                   (SELECT COUNT(*) FROM commit_record c WHERE c.session_id = s.id) AS commit_count,
+                   (SELECT COALESCE(SUM(c.insertions), 0) FROM commit_record c WHERE c.session_id = s.id) AS ins,
+                   (SELECT COALESCE(SUM(c.deletions), 0) FROM commit_record c WHERE c.session_id = s.id) AS del
             FROM session s
             ORDER BY s.start_utc DESC
             LIMIT @n;
@@ -252,12 +255,20 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
 
             var label = (string?)r.label ?? (string?)r.project ?? (string)r.category;
             var interruptions = (long)r.interruptions;
+            var commitCount = (long)r.commit_count;
+
+            // Blank rather than "0 commits" for non-coding sessions - a learning
+            // or communication session producing no commits is expected, not a
+            // gap worth drawing the eye to.
+            var output = commitCount > 0
+                ? $"{commitCount} commit{(commitCount == 1 ? "" : "s")} +{r.ins}/-{r.del}"
+                : "";
 
             sb.AppendLine(
                 $"  {start:MM-dd HH:mm}–{end:HH:mm}  {FormatHeld(seconds),8}  "
                 + $"{(string)r.category,-14} {label,-22} "
                 + $"deep={FormatHeld((long)r.deep_seconds),7}  "
-                + $"{interruptions} int  {r.activity_count} act");
+                + $"{interruptions} int  {r.activity_count} act  {output}");
         }
 
         sb.AppendLine();

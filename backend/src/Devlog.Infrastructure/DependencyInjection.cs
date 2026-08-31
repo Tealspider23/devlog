@@ -1,4 +1,5 @@
 using Devlog.Core.Abstractions;
+using Devlog.Infrastructure.Git;
 using Devlog.Infrastructure.Migrations;
 using Devlog.Infrastructure.Persistence;
 using Devlog.Infrastructure.Windows;
@@ -26,6 +27,11 @@ public static class DependencyInjection
         // Derived stores — rebuilt wholesale on every derivation
         services.AddSingleton<ActivityStore>();
         services.AddSingleton<SessionStore>();
+
+        // Git enrichment. Re-scannable rather than append-only: --scan-git
+        // rebuilds rows from disk, --derive re-links them with no disk access.
+        services.AddSingleton<ICommitStore, CommitStore>();
+        services.AddSingleton<GitScanner>();
 
         // Capture. Singletons because both own an OS hook whose lifetime must
         // match the process, not a scope.

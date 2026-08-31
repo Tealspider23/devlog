@@ -62,9 +62,6 @@ public sealed class DevlogOptions
     /// </summary>
     public string[] ExcludedTitlePatterns { get; set; } = [];
 
-    /// <summary>Local git repositories to scan for artifacts. Phase 3.</summary>
-    public string[] RepoPaths { get; set; } = [];
-
     public TimeSpan Debounce => TimeSpan.FromMilliseconds(Math.Max(0, DebounceMilliseconds));
 
     public TimeSpan IdlePollInterval => TimeSpan.FromSeconds(Math.Max(1, IdlePollSeconds));

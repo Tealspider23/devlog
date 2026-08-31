@@ -41,8 +41,13 @@ internal static class DependencyInjection
             .GetSection(DerivationOptions.SectionName)
             .Get<DerivationOptions>() ?? new DerivationOptions();
 
+        var git = builder.Configuration
+            .GetSection(GitOptions.SectionName)
+            .Get<GitOptions>() ?? new GitOptions();
+
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton(derivation);
+        builder.Services.AddSingleton(git);
 
         return options;
     }
@@ -74,6 +79,7 @@ internal static class DependencyInjection
         services.AddSingleton<PauseController>();
         services.AddSingleton<StatsReporter>();
         services.AddSingleton<DerivationRunner>();
+        services.AddSingleton<GitScanRunner>();
 
         services.AddHostedService<CollectorService>();
 

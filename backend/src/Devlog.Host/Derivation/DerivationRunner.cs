@@ -13,6 +13,8 @@ public sealed record DerivationResult(
     int Sessions,
     int PendingIdentities,
     int UnclassifiedSeconds,
+    int CommitsLinked,
+    int CommitsUnattached,
     TimeSpan Elapsed);
 
 /// <summary>
@@ -33,7 +35,9 @@ public sealed class DerivationRunner(
     SessionStore sessionStore,
     OverrideStore overrideStore,
     ClassificationRuleStore ruleStore,
+    ICommitStore commitStore,
     DerivationOptions options,
+    GitOptions gitOptions,
     ILogger<DerivationRunner> logger)
 {
     public async Task<DerivationResult> RunAsync(CancellationToken ct = default)
@@ -68,6 +72,15 @@ public sealed class DerivationRunner(
             started.ToUnixTimeMilliseconds(),
             ct).ConfigureAwait(false);
 
+        // Re-linking is the cheap half of enrichment: session ids just changed
+        // under every commit (ReplaceAllAsync wiped and reassigned them), but
+        // this never re-reads a repo or recomputes a diff. commit_record.session_id
+        // has ON DELETE SET NULL, so the wipe above already nulled every link —
+        // this rebuilds them against the fresh sessions.
+        var commits = await commitStore.GetAllAsync(ct).ConfigureAwait(false);
+        var linked = new CommitLinker(gitOptions).Link(commits, sessions);
+        await commitStore.RelinkAsync(linked, ct).ConfigureAwait(false);
+
         var result = new DerivationResult(
             raw.Count,
             afterNoise,
@@ -75,6 +88,8 @@ public sealed class DerivationRunner(
             sessions.Count,
             built.PendingIdentities.Count,
             built.PendingIdentities.Values.Sum(v => v.Seconds),
+            linked.Values.Count(v => v is not null),
+            linked.Values.Count(v => v is null),
             DateTimeOffset.UtcNow - started);
 
         logger.LogInformation(
