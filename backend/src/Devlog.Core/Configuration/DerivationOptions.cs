@@ -33,6 +33,23 @@ public sealed class DerivationOptions
     public int SessionGapMinutes { get; set; } = 15;
 
     /// <summary>
+    /// Hard ceiling on how long a single activity may claim to have lasted.
+    /// <para>
+    /// Must be at least the capture heartbeat interval (<c>Devlog:HeartbeatMinutes</c>,
+    /// default 5). While the collector is alive and you are engaged it writes a
+    /// row at least that often, so any larger gap means there is no evidence of
+    /// what happened — the collector was down, or you were away long enough for
+    /// heartbeat suppression. Neither is time worth counting, so the span is
+    /// capped rather than stretched to meet the next row.
+    /// </para>
+    /// <para>
+    /// This does not truncate genuine reading: scrolling is input, so idle stays
+    /// low and heartbeats keep arriving. It only bites where evidence is absent.
+    /// </para>
+    /// </summary>
+    public int MaxSpanMinutes { get; set; } = 10;
+
+    /// <summary>
     /// Idle beyond this counts as absence. Note this is the <em>only</em> thing
     /// idle time is used for — it cannot separate reading from typing, because
     /// scrolling is input.
@@ -49,6 +66,9 @@ public sealed class DerivationOptions
     public string[] NoiseTitles { get; set; } = [];
 
     public TimeSpan SessionGap => TimeSpan.FromMinutes(Math.Max(1, SessionGapMinutes));
+
+    /// <summary>Zero or negative disables the cap entirely.</summary>
+    public TimeSpan MaxSpan => TimeSpan.FromMinutes(MaxSpanMinutes);
 
     public TimeSpan Excursion => TimeSpan.FromSeconds(Math.Max(0, ExcursionSeconds));
 

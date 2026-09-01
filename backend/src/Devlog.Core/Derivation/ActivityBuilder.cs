@@ -19,8 +19,22 @@ public sealed class ActivityBuilder(DerivationOptions options, Classifier classi
     /// attributed 9h44m to a browser tab across a reboot, because nothing stopped
     /// the span at the shutdown.
     /// </summary>
+    /// <summary>
+    /// Events that end a span and start nothing.
+    /// <para>
+    /// <see cref="EventKind.CollectorStart"/> is included because a start means
+    /// recording was <em>off</em> beforehand: whatever preceded it is separated
+    /// by a gap of unknown length, not adjacent to it. Treating a start as
+    /// merely another observation lets the preceding span stretch across a
+    /// crash-and-restart, which is how 3h27m of phantom work appeared in real
+    /// data. It still begins a span of its own — see <see cref="IsObservation"/>.
+    /// </para>
+    /// </summary>
     private static bool IsTerminator(EventKind kind) =>
-        kind is EventKind.Lock or EventKind.Suspend or EventKind.CollectorStop;
+        kind is EventKind.Lock
+            or EventKind.Suspend
+            or EventKind.CollectorStop
+            or EventKind.CollectorStart;
 
     /// <summary>Events that carry an observation worth turning into a span.</summary>
     private static bool IsObservation(EventKind kind) =>
@@ -90,6 +104,30 @@ public sealed class ActivityBuilder(DerivationOptions options, Classifier classi
             if (endUtc <= current.TsUtc)
             {
                 continue;
+            }
+
+            // A span can never outlive the evidence for it.
+            //
+            // While the collector is alive AND you are engaged it emits at least
+            // one row per heartbeat interval, so a gap far exceeding that means
+            // one of two things, and neither is work worth counting: the
+            // collector was not running (killed, crashed, or the machine slept
+            // without emitting a suspend), or you were away long enough for
+            // heartbeat suppression to kick in.
+            //
+            // Observed failure this guards: the collector was force-killed at
+            // ~18:42 with no clean stop event, restarted at 22:04. CollectorStart
+            // is an observation rather than a terminator, so the 18:37 span ran
+            // to meet it and invented 3h27m of "deep work" on a session that had
+            // ended hours earlier.
+            //
+            // Note this does NOT truncate genuine reading: scrolling counts as
+            // input, so idle stays low, so heartbeats keep firing and the cap is
+            // never reached. It only bites when there is genuinely no evidence.
+            var maxSpanMs = (long)options.MaxSpan.TotalMilliseconds;
+            if (maxSpanMs > 0 && endUtc - current.TsUtc > maxSpanMs)
+            {
+                endUtc = current.TsUtc + maxSpanMs;
             }
 
             var extracted = ContextExtractor.Extract(current.ProcessName, current.WindowTitle);
