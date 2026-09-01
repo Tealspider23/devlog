@@ -14,6 +14,12 @@ internal static class Program
     [STAThread]
     private static int Main(string[] args)
     {
+        // Absolute first line, before anything touches Console. See the doc
+        // comment on AttachToParentConsoleIfInvokedWithArgs for why this exists:
+        // without it, every --stats / --derive / etc. run from an interactive
+        // terminal prints nothing at all, with no error.
+        CommandLine.AttachToParentConsoleIfInvokedWithArgs(args);
+
         // ContentRootPath MUST be pinned to the executable's own folder, not left
         // at the default (Directory.GetCurrentDirectory()).
         //

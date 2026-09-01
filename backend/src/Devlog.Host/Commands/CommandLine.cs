@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+
 namespace Devlog.Host.Commands;
 
 /// <summary>
@@ -56,6 +58,46 @@ public sealed class CommandLine(string[] args)
         catch (IOException)
         {
             // No console attached (launched from Explorer). Nothing to encode.
+        }
+    }
+
+    private const uint AttachParentProcess = 0xFFFFFFFF;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AttachConsole(uint dwProcessId);
+
+    /// <summary>
+    /// Binds this process's stdout/stdin to the console window that launched it.
+    /// <para>
+    /// The exe is a GUI-subsystem app (<c>WinExe</c>, needed for the tray icon).
+    /// Windows does not attach a GUI app's output to the parent console
+    /// automatically — run it with any argument from an interactive PowerShell
+    /// window and every <c>Console.WriteLine</c> silently goes nowhere, with no
+    /// error. It looks identical to the command doing nothing.
+    /// </para>
+    /// <para>
+    /// MUST be called before .NET's <see cref="Console"/> class is touched for
+    /// the first time — the OS handles are bound lazily on first access, so this
+    /// is the literal first line of <c>Main</c>. Only attempted when arguments
+    /// are present: a bare double-click launch (zero args, tray mode) must stay
+    /// silent and undisturbed.
+    /// </para>
+    /// </summary>
+    public static void AttachToParentConsoleIfInvokedWithArgs(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            return;
+        }
+
+        try
+        {
+            AttachConsole(AttachParentProcess);
+        }
+        catch (Exception)
+        {
+            // No parent console to attach to (e.g. launched by a scheduler).
+            // Diagnostics degrade to invisible, exactly as before this fix.
         }
     }
 }
