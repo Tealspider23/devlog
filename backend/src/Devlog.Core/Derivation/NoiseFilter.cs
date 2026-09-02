@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Devlog.Core.Domain;
 
 namespace Devlog.Core.Derivation;
@@ -26,7 +27,17 @@ public sealed class NoiseFilter
         "SearchHost",               // Start search
         "StartMenuExperienceHost",
         "ApplicationFrameHost",     // UWP host shim, never the real app
-        "SystemSettings"
+        "SystemSettings",
+
+        // Added after surveying the unanswered pile. Both confirmed against real
+        // rows: ShellHost titles as "Quick settings", PickerHost as Windows
+        // Update's "You're getting an update" toast.
+        //
+        // LaunchApps was on this list too and has been deliberately left off —
+        // it turned out to be a Chrome tab (the company app launcher), not a
+        // process, so it is real attention and is categorised, not dropped.
+        "ShellHost",
+        "PickerHost"
     };
 
     private static readonly HashSet<string> NoiseTitles = new(StringComparer.OrdinalIgnoreCase)
@@ -42,6 +53,25 @@ public sealed class NoiseFilter
         "New Tab - Microsoft Edge",
         "Search"
     };
+
+    /// <summary>
+    /// Titles that vary but mean the same nothing, so the exact-match set above
+    /// cannot hold them.
+    /// <para>
+    /// Browser permission prompts are the motivating case: Chrome renames its
+    /// own window to <c>launch.paltechapps.com wants to</c> while a dialog is
+    /// up, which reads as a distinct site and earns its own pending identity.
+    /// It is not a site — it is a modal on top of one.
+    /// </para>
+    /// </summary>
+    private static readonly Regex[] NoiseTitlePatterns =
+    [
+        // "<host> wants to" — a permission prompt, one per host visited.
+        new(@"\bwants to\b", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+
+        // Chrome's transient status while resolving a protocol handler.
+        new(@"^Checking link\b", RegexOptions.IgnoreCase | RegexOptions.Compiled)
+    ];
 
     private readonly HashSet<string> _processes;
     private readonly HashSet<string> _titles;
@@ -82,9 +112,19 @@ public sealed class NoiseFilter
             return true;
         }
 
-        if (!string.IsNullOrEmpty(e.WindowTitle) && _titles.Contains(e.WindowTitle.Trim()))
+        if (!string.IsNullOrEmpty(e.WindowTitle))
         {
-            return true;
+            var title = e.WindowTitle.Trim();
+
+            if (_titles.Contains(title))
+            {
+                return true;
+            }
+
+            if (NoiseTitlePatterns.Any(p => p.IsMatch(title)))
+            {
+                return true;
+            }
         }
 
         // A focus row with neither process nor title describes nothing. Observed

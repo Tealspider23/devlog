@@ -28,9 +28,28 @@ public static partial class SiteIdentity
         RegexOptions.IgnoreCase | RegexOptions.Compiled)]
     private static partial Regex BrowserSuffixRegex();
 
-    /// <summary>GitHub repo pages: <c>owner/repo: description</c>, carrying no site suffix at all.</summary>
-    [GeneratedRegex(@"^[\w.\-]+/[\w.\-]+:", RegexOptions.Compiled)]
+    /// <summary>
+    /// GitHub repo pages: <c>owner/repo: description</c>, or just <c>owner/repo</c>,
+    /// carrying no site suffix at all.
+    /// <para>
+    /// The colon is optional because a repo with no description — which is every
+    /// repo of your own before you write one — titles as bare <c>owner/repo</c>.
+    /// Requiring it missed <c>Tealspider23/devlog</c> and <c>excalidraw/excalidraw</c>
+    /// entirely, so each earned its own pending identity instead of folding into
+    /// the single GitHub verdict this rule exists to produce.
+    /// </para>
+    /// <para>
+    /// Anchored at both ends when there is no colon, so an arbitrary title that
+    /// merely opens with a slashed pair — a file path, a fraction — is not
+    /// mistaken for a repository.
+    /// </para>
+    /// </summary>
+    [GeneratedRegex(@"^[\w.\-]+/[\w.\-]+(?::|$)", RegexOptions.Compiled)]
     private static partial Regex GitHubRepoRegex();
+
+    /// <summary>A bare <c>owner/repo</c> and nothing else — anchored at both ends.</summary>
+    [GeneratedRegex(@"^[\w.\-]+/[\w.\-]+$", RegexOptions.Compiled)]
+    private static partial Regex RepoNameRegex();
 
     /// <summary>The separators sites actually use before their own name.</summary>
     [GeneratedRegex(@"\s+[-—|·]\s+", RegexOptions.Compiled)]
@@ -60,17 +79,21 @@ public static partial class SiteIdentity
 
         var title = windowTitle.Trim();
 
-        // Every repo, issue and PR page collapses to one verdict on GitHub rather
-        // than one per repository.
-        if (GitHubRepoRegex().IsMatch(title))
-        {
-            return "GitHub";
-        }
-
         var stripped = BrowserSuffixRegex().Replace(title, string.Empty).Trim();
         if (stripped.Length == 0)
         {
             stripped = title;
+        }
+
+        // Every repo, issue and PR page collapses to one verdict on GitHub rather
+        // than one per repository.
+        //
+        // Tested against the stripped title, not the raw one: the description-less
+        // form ends at the repo name, so ` - Google Chrome` would otherwise sit
+        // where the pattern expects end-of-string and the match would be lost.
+        if (GitHubRepoRegex().IsMatch(stripped))
+        {
+            return "GitHub";
         }
 
         // Sites put their name last: "Understanding MCP servers - Model Context
@@ -81,6 +104,16 @@ public static partial class SiteIdentity
         if (candidate.Length == 0)
         {
             candidate = stripped;
+        }
+
+        // GitHub's own tabs put the repo last rather than first:
+        // "Issues · excalidraw/excalidraw" and "devlog/docs at master ·
+        // Tealspider23/devlog". The head-anchored check above cannot see those,
+        // so the resolved candidate is retested — otherwise every repo whose
+        // Issues tab you open earns a second identity beside GitHub.
+        if (RepoNameRegex().IsMatch(candidate))
+        {
+            return "GitHub";
         }
 
         return candidate.Length > MaxLength ? candidate[..MaxLength].TrimEnd() : candidate;

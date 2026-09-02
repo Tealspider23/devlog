@@ -35,7 +35,7 @@ public sealed class CollectorService(
     /// honest while revealing nothing about what was on screen.
     /// </para>
     /// </summary>
-    private const string ExcludedMarker = "[excluded]";
+    private const string ExcludedMarker = PrivacyMarker.Excluded;
 
     private readonly ExclusionRules _exclusions = new(
         options.ExcludedProcesses,
