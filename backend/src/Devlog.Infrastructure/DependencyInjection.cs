@@ -33,6 +33,9 @@ public static class DependencyInjection
         services.AddSingleton<ICommitStore, CommitStore>();
         services.AddSingleton<GitScanner>();
 
+        // Destructive maintenance, separate from the append-only event store.
+        services.AddSingleton<MaintenanceStore>();
+
         // Capture. Singletons because both own an OS hook whose lifetime must
         // match the process, not a scope.
         services.AddSingleton<IActivityWatcher, WinEventForegroundWatcher>();

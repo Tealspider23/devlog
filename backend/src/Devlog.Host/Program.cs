@@ -71,6 +71,24 @@ internal static class Program
         var logger = host.Services.GetRequiredService<ILogger<CollectorService>>();
         var lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>();
 
+        // Only one collector may run at a time. Two would both hook the desktop
+        // and both write the same database, double-recording every focus change.
+        //
+        // This became likely rather than theoretical once startup registration
+        // existed: logon launches one, and any manual start — or a mistyped CLI
+        // flag, which falls through to tray mode — would add another. That exact
+        // accident has already happened once during development.
+        //
+        // Local (per-session) rather than Global: capture is per-user by nature,
+        // and two different users on one machine should each get their own.
+        using var singleInstance = new Mutex(initiallyOwned: true, @"Local\devlog.collector", out var isOnly);
+
+        if (!isOnly)
+        {
+            logger.LogWarning("Another devlog collector is already running. Exiting rather than double-recording.");
+            return 0;
+        }
+
         // Returns once every hosted service has run up to its first await, so
         // CollectorService has already subscribed to the session monitor.
         host.Start();

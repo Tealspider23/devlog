@@ -2,6 +2,7 @@ using Devlog.Core.Abstractions;
 using Devlog.Core.Domain;
 using Devlog.Host.Derivation;
 using Devlog.Host.Diagnostics;
+using Devlog.Host.Startup;
 using Devlog.Infrastructure.Persistence;
 
 namespace Devlog.Host.Commands;
@@ -57,6 +58,16 @@ internal static class DiagnosticCommands
         if (cli.Has("--config"))
         {
             return Config(host);
+        }
+
+        if (cli.Has("--purge-seed"))
+        {
+            return PurgeSeed(host, cli);
+        }
+
+        if (cli.Has("--startup"))
+        {
+            return Startup(cli);
         }
 
         return cli.Has("--classify") ? Classify(host, cli) : null;
@@ -266,6 +277,122 @@ internal static class DiagnosticCommands
 
         var unattached = commits.Count(c => c.SessionId is null);
         Console.WriteLine($"\n  {commits.Count} total, {unattached} unattached\n");
+
+        return 0;
+    }
+
+    /// <summary>
+    /// Controls whether the collector launches at logon. Without it, a reboot or
+    /// a crash silently ends capture — which cost a full day of data on
+    /// 2026-09-01.
+    /// </summary>
+    private static int Startup(CommandLine cli)
+    {
+        CommandLine.TrySetUtf8Console();
+
+        if (cli.Has("--enable"))
+        {
+            StartupRegistration.Enable();
+            Console.WriteLine($"\n  Enabled. devlog will start at logon:\n    {StartupRegistration.DescribeTarget()}\n");
+            return 0;
+        }
+
+        if (cli.Has("--disable"))
+        {
+            StartupRegistration.Disable();
+            Console.WriteLine("\n  Disabled. devlog will no longer start at logon.\n");
+            return 0;
+        }
+
+        var current = StartupRegistration.CurrentRegistration();
+
+        if (current is null)
+        {
+            Console.WriteLine("""
+
+                  Startup: NOT registered — capture will not resume after a reboot.
+
+                  Enable with:  --startup --enable
+                """);
+            return 0;
+        }
+
+        Console.WriteLine($"\n  Startup: registered\n    {current}");
+
+        // A stale path is worse than none: it looks configured but launches
+        // nothing, and the failure is silent until you notice missing data.
+        if (!StartupRegistration.IsRegistered)
+        {
+            Console.WriteLine($"""
+
+                  WARNING: this does not match the current executable:
+                    {StartupRegistration.DescribeTarget()}
+
+                  The registered path is stale — likely from a build into a
+                  different output folder. Re-run --startup --enable to fix.
+                """);
+        }
+
+        Console.WriteLine();
+        return 0;
+    }
+
+    /// <summary>
+    /// Removes generated fixture rows once real capture makes them redundant.
+    /// <para>
+    /// Requires <c>--yes</c> to actually delete. This is the only command in
+    /// devlog that destroys source-of-truth data, and a mistyped flag should not
+    /// be able to do it — the same class of accident that once started a second
+    /// collector because an unrecognised argument fell through to tray mode.
+    /// </para>
+    /// </summary>
+    private static int PurgeSeed(IHost host, CommandLine cli)
+    {
+        CommandLine.TrySetUtf8Console();
+
+        var maintenance = host.Services.GetRequiredService<MaintenanceStore>();
+        var count = maintenance.CountSyntheticAsync().GetAwaiter().GetResult();
+
+        if (count == 0)
+        {
+            Console.WriteLine("\nNo synthetic rows found — nothing to purge.\n");
+            return 0;
+        }
+
+        if (!cli.Has("--yes"))
+        {
+            Console.WriteLine($"""
+
+                {count} synthetic rows would be deleted from raw_event, along with
+                any unanswered classification rules that only exist because of them.
+
+                This deletes source-of-truth data and cannot be undone.
+                Re-run with --yes to proceed:
+
+                  --purge-seed --yes
+                """);
+            return 1;
+        }
+
+        var result = maintenance.PurgeSyntheticAsync().GetAwaiter().GetResult();
+
+        Console.WriteLine($"""
+
+            === PURGED ===
+              raw_event rows deleted     : {result.RawEvents}
+              pending rules deleted      : {result.PendingRules}
+            """);
+
+        // Every activity and session built from those rows is now invalid.
+        // Rebuilding from source is simpler and safer than a surgical repair,
+        // which is the entire point of keeping derived data disposable.
+        var derived = host.Services.GetRequiredService<DerivationRunner>()
+            .RunAsync().GetAwaiter().GetResult();
+
+        Console.WriteLine($"""
+              re-derived                 : {derived.Activities} activities, {derived.Sessions} sessions
+              unclassified remaining     : {derived.PendingIdentities} identities, {Humanise(derived.UnclassifiedSeconds)}
+            """);
 
         return 0;
     }
