@@ -63,17 +63,42 @@ Deliberately **not** used: Redis, message brokers, Docker, auth, cloud.
 ## Running it
 
 ```powershell
-dotnet build backend/Devlog.slnx
-dotnet run --project backend/src/Devlog.Host
+.\scripts\install.ps1
 ```
 
-The database lands at `%LOCALAPPDATA%\devlog\devlog.db`.
-
-Generate synthetic history for development without waiting for real capture:
+That publishes both executables to `%LOCALAPPDATA%\devlog\bin` and puts `devlog`
+on your PATH. Then:
 
 ```powershell
-dotnet run --project backend/src/Devlog.Host -- --seed 7
+devlog                      # what it can do, and whether capture is alive
+devlog startup --enable     # run the collector at logon
 ```
+
+There are two programs, and the split matters:
+
+| | |
+|---|---|
+| **`Devlog.Host.exe`** | The collector. Lives in the tray, owns the Win32 hooks, and is the only thing that records. Started at logon; takes no arguments. |
+| **`devlog`** | Everything else — reads, rebuilds, classifies. Never captures, and deliberately cannot start the collector. |
+
+They are separate because the collector must be a GUI-subsystem app (no console
+window at logon), and a GUI-subsystem process does not hold the shell: output
+lands after the prompt and cannot be piped or redirected. `devlog` is a console
+app, so it behaves like any other command.
+
+```powershell
+devlog stats                          # capture health, hook status
+devlog sessions 20                    # derived sessions with commits
+devlog derive                         # rebuild from the raw log
+devlog unknowns                       # identities awaiting a verdict
+devlog classify "Google Search" Other
+devlog scan-git 90                    # import commits from configured repos
+```
+
+Flags still work — `devlog --sessions 20` is the same as `devlog sessions 20`.
+
+The database lands at `%LOCALAPPDATA%\devlog\devlog.db`. Real local repo paths
+belong in `appsettings.local.json` (gitignored), never in `appsettings.json`.
 
 ---
 

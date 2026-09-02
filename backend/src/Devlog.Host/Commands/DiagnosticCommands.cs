@@ -12,7 +12,7 @@ namespace Devlog.Host.Commands;
 /// services the tray app uses, so a diagnostic can never disagree with what the
 /// running collector would do.
 /// </summary>
-internal static class DiagnosticCommands
+public static class DiagnosticCommands
 {
     /// <summary>
     /// Returns null when no one-shot command was requested, meaning the caller
@@ -122,7 +122,7 @@ internal static class DiagnosticCommands
             real category, so it cannot quietly flatter the focus ratio.
             Unattached commits are counted, not dropped — usually because they
             predate the collector or landed outside any session's window.
-            Run --unknowns to see what is pending, --commits to see linkage.
+            Run `devlog unknowns` to see what is pending, `devlog commits` for linkage.
             """);
 
         return 0;
@@ -135,11 +135,17 @@ internal static class DiagnosticCommands
         var rules = host.Services.GetRequiredService<ClassificationRuleStore>()
             .GetAllAsync().GetAwaiter().GetResult();
 
-        var pending = rules
+        // Neither marker is awaiting a verdict. [seed] identities describe
+        // fixtures, and [excluded] is the privacy rule working as designed —
+        // listing either invites you to classify something that isn't activity.
+        var all = rules
             .Where(r => r.IsPending && r.Scope == RuleScope.Site)
+            .Where(r => !SyntheticData.IsSynthetic(r.Site) && !PrivacyMarker.IsExcluded(r.Site))
             .OrderByDescending(r => r.TotalSeconds)
-            .Take(cli.ValueOrDefault("--unknowns", 30))
             .ToList();
+
+        var limit = cli.ValueOrDefault("--unknowns", 30);
+        var pending = all.Take(limit).ToList();
 
         if (pending.Count == 0)
         {
@@ -154,12 +160,18 @@ internal static class DiagnosticCommands
             Console.WriteLine($"  {Humanise(r.TotalSeconds),9}  {r.Hits,4} hits   {r.Site}");
         }
 
+        // The total, not the page. Reporting the page made `unknowns 3` claim
+        // there were 3 things left to answer when there were nine.
+        var shown = pending.Count == all.Count
+            ? $"{all.Count} pending."
+            : $"{all.Count} pending, {pending.Count} shown.";
+
         Console.WriteLine($"""
 
-              {pending.Count} pending. Ordered by time, so answering the top few
+              {shown} Ordered by time, so answering the top few
               covers most of the unclassified total and the tail can be ignored.
 
-              Answer one:  --classify "<identity>" <Category>
+              Answer one:  devlog classify "<identity>" <Category>
               Categories:  {string.Join(" ", Enum.GetNames<ActivityCategory>())}
 
               These will be filled in automatically once local-LLM classification
@@ -178,8 +190,8 @@ internal static class DiagnosticCommands
         if (values.Length < 2)
         {
             Console.WriteLine("""
-                usage: --classify "<identity>" <Category> [--keyword "<kw>"]
-                e.g.   --classify "Model Context Protocol" Learning
+                usage: devlog classify "<identity>" <Category> [--keyword "<kw>"]
+                e.g.   devlog classify "Model Context Protocol" Learning
                 """);
             return 1;
         }
@@ -217,7 +229,7 @@ internal static class DiagnosticCommands
                 """);
         }
 
-        Console.WriteLine("\n  Run --derive to apply.\n");
+        Console.WriteLine("\n  Run `devlog derive` to apply.\n");
         return 0;
     }
 
@@ -236,8 +248,8 @@ internal static class DiagnosticCommands
               repos failed    : {result.ReposFailed}
 
             Only new commits are diffed — a repeat scan pays only for what
-            has changed since last time. Run --derive next to link them to
-            sessions, then --commits to see the result.
+            has changed since last time. Run `devlog derive` next to link them
+            to sessions, then `devlog commits` to see the result.
             """);
 
         return 0;
@@ -257,7 +269,7 @@ internal static class DiagnosticCommands
 
         if (recent.Count == 0)
         {
-            Console.WriteLine("\nno commits — run --scan-git first\n");
+            Console.WriteLine("\nno commits — run `devlog scan-git` first\n");
             return 0;
         }
 
@@ -312,7 +324,7 @@ internal static class DiagnosticCommands
 
                   Startup: NOT registered — capture will not resume after a reboot.
 
-                  Enable with:  --startup --enable
+                  Enable with:  devlog startup --enable
                 """);
             return 0;
         }
@@ -329,7 +341,7 @@ internal static class DiagnosticCommands
                     {StartupRegistration.DescribeTarget()}
 
                   The registered path is stale — likely from a build into a
-                  different output folder. Re-run --startup --enable to fix.
+                  different output folder. Run `devlog startup --enable` to fix.
                 """);
         }
 
@@ -369,7 +381,7 @@ internal static class DiagnosticCommands
                 This deletes source-of-truth data and cannot be undone.
                 Re-run with --yes to proceed:
 
-                  --purge-seed --yes
+                  devlog purge-seed --yes
                 """);
             return 1;
         }

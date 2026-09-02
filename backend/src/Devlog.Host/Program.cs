@@ -54,7 +54,30 @@ internal static class Program
         // migrations have run.
         host.Services.GetRequiredService<MigrationRunner>().Run();
 
-        return DiagnosticCommands.TryRun(host, new CommandLine(args)) ?? RunTray(host);
+        // No arguments means tray mode — a logon launch, a shortcut, a
+        // double-click. Anything else was meant as a command, and if it is not
+        // one, saying so beats silently starting a second collector: that is
+        // exactly how a duplicate came to be running and double-recording once
+        // already. Commands now live in `devlog`, which is why this only points
+        // the way rather than growing its own help screen.
+        if (args.Length == 0)
+        {
+            return RunTray(host);
+        }
+
+        var handled = DiagnosticCommands.TryRun(host, new CommandLine(args));
+
+        if (handled is not null)
+        {
+            return handled.Value;
+        }
+
+        Console.Error.WriteLine(
+            $"\n  Devlog.Host does not recognise: {string.Join(' ', args)}"
+            + "\n  Run it with no arguments to start the collector in the tray,"
+            + "\n  or use the `devlog` command for everything else.\n");
+
+        return 2;
     }
 
     /// <summary>

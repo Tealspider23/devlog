@@ -1,5 +1,6 @@
 using System.Text;
 using Dapper;
+using Devlog.Core.Domain;
 using Devlog.Infrastructure.Persistence;
 
 namespace Devlog.Host.Diagnostics;
@@ -20,8 +21,73 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
     /// can separate real capture from generated history. Declared here rather
     /// than on the generator, so the diagnostics do not depend on it existing.
     /// </summary>
-    private const string SeedMarker = "[seed]";
+    private const string SeedMarker = SyntheticData.Marker;
 
+    /// <summary>
+    /// One line for the top of the help screen: is anything being captured, and
+    /// is there anything waiting on me.
+    /// <para>
+    /// Kept to a single line on purpose. Help is read when you have forgotten a
+    /// command, not when you want a report — and there are four commands for
+    /// that already.
+    /// </para>
+    /// </summary>
+    public string Summary()
+    {
+        using var db = factory.Open();
+
+        var since = DateTimeOffset.UtcNow.AddHours(-24).ToUnixTimeMilliseconds();
+
+        var eventsToday = db.ExecuteScalar<int>(
+            "SELECT COUNT(*) FROM raw_event WHERE ts_utc >= @since;", new { since });
+
+        var lastSeen = db.ExecuteScalar<long?>("SELECT MAX(ts_utc) FROM raw_event;");
+        var sessions = db.ExecuteScalar<int>("SELECT COUNT(*) FROM session;");
+
+        // Must match what `unknowns` lists, or the two disagree about how much
+        // work is waiting — and the smaller, correct number is the one hidden.
+        // Neither marker is awaiting a verdict: one names fixtures, the other is
+        // the privacy rule doing its job.
+        var pending = db.QuerySingle<PendingTotals>(
+            """
+            SELECT COUNT(*)                          AS Count,
+                   COALESCE(SUM(total_seconds), 0)   AS Seconds
+            FROM classification_rule
+            WHERE category IS NULL
+              AND scope = 'Site'
+              AND site NOT LIKE @seed
+              AND site <> @excluded;
+            """,
+            new { seed = SyntheticData.LikePattern, excluded = PrivacyMarker.Excluded });
+
+        // Silence is the failure mode worth shouting about: a tracker that has
+        // quietly stopped tracking looks exactly like a quiet day.
+        var capture = lastSeen is null
+            ? "no events yet"
+            : $"last event {FormatAgo(DateTimeOffset.UtcNow - DateTimeOffset.FromUnixTimeMilliseconds(lastSeen.Value))} ago";
+
+        return $"{eventsToday} events in 24h · {sessions} sessions derived · "
+             + $"{pending.Count} pending ({FormatHeld(pending.Seconds)}) · {capture}";
+    }
+
+    /// <summary>
+    /// Settable properties, not a positional record: SQLite hands back
+    /// <c>COUNT(*)</c> as an Int64, so a positional <c>(int Count, ...)</c>
+    /// finds no matching constructor and Dapper throws at materialisation.
+    /// </summary>
+    private sealed class PendingTotals
+    {
+        public long Count { get; init; }
+        public long Seconds { get; init; }
+    }
+
+    private static string FormatAgo(TimeSpan d) => d switch
+    {
+        { TotalMinutes: < 1 } => "seconds",
+        { TotalHours: < 1 } => $"{(int)d.TotalMinutes}m",
+        { TotalDays: < 1 } => $"{(int)d.TotalHours}h{d.Minutes:D2}m",
+        _ => $"{(int)d.TotalDays}d"
+    };
 
     public string Report()
     {
@@ -88,7 +154,7 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
             """))
         {
             var t = (string)r.window_title;
-            sb.AppendLine($"  {r.n,4}x  {(t.Length > 90 ? t[..90] + "..." : t)}");
+            sb.AppendLine($"  {r.n,4}x  {Fit(t, 90).TrimEnd()}");
         }
 
         // If the WinEvent hook is delivering, real switches land at arbitrary
@@ -117,7 +183,7 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
         if (totalFocus < 6)
         {
             sb.AppendLine($"  only {totalFocus} focus events this run — not enough to judge.");
-            sb.AppendLine("  Switch between several windows, then re-run --stats.");
+            sb.AppendLine("  Switch between several windows, then re-run `devlog stats`.");
         }
         else
         {
@@ -148,7 +214,7 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
             var title = (string?)r.window_title ?? "-";
             sb.AppendLine(
                 $"  {when:HH:mm:ss}  {KindName((int)r.kind),-14} idle={r.idle_seconds,4}s  "
-                + $"{r.process_name,-18} {(title.Length > 60 ? title[..60] + "..." : title)}");
+                + $"{Fit((string?)r.process_name, 18)} {Fit(title, 60).TrimEnd()}");
         }
 
         return sb.ToString();
@@ -202,7 +268,7 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
             sb.AppendLine(
                 $"  {ts:HH:mm:ss}  {FormatHeld(held),8}  idle={r.idle_seconds,4}s  "
                 + $"{KindName((int)r.kind),-9} {r.process_name,-18} "
-                + $"{(title.Length > 62 ? title[..62] + "…" : title)}");
+                + $"{Fit(title, 62).TrimEnd()}");
         }
 
         sb.AppendLine();
@@ -238,7 +304,7 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
 
         if (rows.Count == 0)
         {
-            return "no sessions — run --derive first\n";
+            return "no sessions — run `devlog derive` first\n";
         }
 
         sb.AppendLine($"=== LAST {rows.Count} SESSIONS ===");
@@ -266,7 +332,7 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
 
             sb.AppendLine(
                 $"  {start:MM-dd HH:mm}–{end:HH:mm}  {FormatHeld(seconds),8}  "
-                + $"{(string)r.category,-14} {label,-22} "
+                + $"{(string)r.category,-14} {Fit(label, 22)} "
                 + $"deep={FormatHeld((long)r.deep_seconds),7}  "
                 + $"{interruptions} int  {r.activity_count} act  {output}");
         }
@@ -283,9 +349,27 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
             FROM activity WHERE category = 'Other';
             """);
 
-        sb.AppendLine($"  unclassified activity time: {FormatHeld(unclassified)}  (see --unknowns)");
+        sb.AppendLine($"  unclassified activity time: {FormatHeld(unclassified)}  (see `devlog unknowns`)");
 
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// Clips text to a column and pads it out, so a long value cannot shove
+    /// every column to its right off the line.
+    /// <para>
+    /// Window titles are the reason. SSMS repeats the whole server and database
+    /// name twice in one title and then appends its own product name; a single
+    /// row of that turned the sessions table into unreadable wrapped text.
+    /// </para>
+    /// </summary>
+    private static string Fit(string? text, int width)
+    {
+        var value = text ?? string.Empty;
+
+        return value.Length <= width
+            ? value.PadRight(width)
+            : value[..(width - 1)] + "…";
     }
 
     private static string FormatHeld(long seconds) => seconds switch

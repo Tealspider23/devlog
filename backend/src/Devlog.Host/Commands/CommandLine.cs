@@ -9,7 +9,40 @@ namespace Devlog.Host.Commands;
 /// </summary>
 public sealed class CommandLine(string[] args)
 {
-    private readonly string[] _args = args;
+    private readonly string[] _args = Normalise(args);
+
+    /// <summary>
+    /// Turns a leading subcommand into the flag the dispatcher already
+    /// understands: <c>sessions 20</c> becomes <c>--sessions 20</c>.
+    /// <para>
+    /// Doing it here rather than in a parallel dispatch table is what lets both
+    /// spellings coexist for free and forever. Everything written down so far —
+    /// the README, the docs, a week of shell history — used flags, and breaking
+    /// that to gain a nicer surface would be a poor trade.
+    /// </para>
+    /// </summary>
+    public static string[] Normalise(string[] args)
+    {
+        if (args.Length == 0 || args[0].StartsWith('-'))
+        {
+            return args;
+        }
+
+        var normalised = (string[])args.Clone();
+        normalised[0] = "--" + args[0];
+        return normalised;
+    }
+
+    /// <summary>
+    /// The subcommand as typed, with no leading dashes — null when nothing was
+    /// asked for. Used to decide between help, a real command, and a typo.
+    /// </summary>
+    public static string? CommandName(string[] args) =>
+        args.Length == 0 ? null : args[0].TrimStart('-');
+
+    public static bool WantsHelp(string[] args) =>
+        args.Length == 0
+        || args.Any(a => a is "--help" or "-h" or "-?" or "/?" or "help");
 
     public bool Has(string flag) =>
         _args.Any(a => string.Equals(a, flag, StringComparison.OrdinalIgnoreCase));

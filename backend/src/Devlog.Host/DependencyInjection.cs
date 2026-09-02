@@ -13,12 +13,21 @@ namespace Devlog.Host;
 /// point that decides which command to run, rather than a growing list of
 /// registrations.
 /// </summary>
-internal static class DependencyInjection
+public static class DependencyInjection
 {
-    public static IHostApplicationBuilder AddDevlog(this IHostApplicationBuilder builder)
+    /// <param name="quietConsole">
+    /// True for the CLI. Serilog's console sink is right for the collector, whose
+    /// log lines <em>are</em> its output, and wrong for a one-shot command, where
+    /// "[11:32:40 INF] Schema up to date at version 3" lands on top of the report
+    /// you actually asked for. The file sink keeps everything either way, so
+    /// nothing is lost — only moved out of the way.
+    /// </param>
+    public static IHostApplicationBuilder AddDevlog(
+        this IHostApplicationBuilder builder,
+        bool quietConsole = false)
     {
         var options = builder.BindOptions();
-        builder.AddDevlogLogging(options);
+        builder.AddDevlogLogging(options, quietConsole);
 
         builder.Services.AddDevlogInfrastructure();
         builder.Services.AddDevlogHostServices();
@@ -52,7 +61,10 @@ internal static class DependencyInjection
         return options;
     }
 
-    private static void AddDevlogLogging(this IHostApplicationBuilder builder, DevlogOptions options)
+    private static void AddDevlogLogging(
+        this IHostApplicationBuilder builder,
+        DevlogOptions options,
+        bool quietConsole)
     {
         var logDirectory = Path.Combine(
             Path.GetDirectoryName(options.ResolveDatabasePath())!,
@@ -60,7 +72,9 @@ internal static class DependencyInjection
 
         builder.Services.AddSerilog((_, cfg) => cfg
             .ReadFrom.Configuration(builder.Configuration)
-            .WriteTo.Console()
+            .WriteTo.Console(restrictedToMinimumLevel: quietConsole
+                ? Serilog.Events.LogEventLevel.Warning
+                : Serilog.Events.LogEventLevel.Information)
             .WriteTo.File(
                 Path.Combine(logDirectory, "devlog-.log"),
                 rollingInterval: RollingInterval.Day,
