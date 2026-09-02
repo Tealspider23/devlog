@@ -1,5 +1,6 @@
 using System.Text;
 using Dapper;
+using Devlog.Core.Abstractions;
 using Devlog.Core.Domain;
 using Devlog.Infrastructure.Persistence;
 
@@ -14,7 +15,7 @@ namespace Devlog.Host.Diagnostics;
 /// real window titles actually look like?
 /// </para>
 /// </summary>
-public sealed class StatsReporter(ISqliteConnectionFactory factory)
+public sealed class StatsReporter(ISqliteConnectionFactory factory, ISessionReader reader)
 {
     /// <summary>
     /// Prefix that synthetic rows carry in their window title, so every report
@@ -284,57 +285,45 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
     /// downstream KPI — the failure this pipeline is built to prevent.
     /// </para>
     /// </summary>
-    public string Sessions(int count)
+    public async Task<string> SessionsAsync(int count, CancellationToken ct = default)
     {
-        using var db = factory.Open();
-        var sb = new StringBuilder();
+        var summaries = await reader.GetRecentAsync(count, ct).ConfigureAwait(false);
 
-        var rows = db.Query(
-            """
-            SELECT s.id, s.start_utc, s.end_utc, s.project, s.category,
-                   s.interruptions, s.deep_seconds, s.label,
-                   (SELECT COUNT(*) FROM activity a WHERE a.session_id = s.id) AS activity_count,
-                   (SELECT COUNT(*) FROM commit_record c WHERE c.session_id = s.id) AS commit_count,
-                   (SELECT COALESCE(SUM(c.insertions), 0) FROM commit_record c WHERE c.session_id = s.id) AS ins,
-                   (SELECT COALESCE(SUM(c.deletions), 0) FROM commit_record c WHERE c.session_id = s.id) AS del
-            FROM session s
-            ORDER BY s.start_utc DESC
-            LIMIT @n;
-            """, new { n = count }).Reverse().ToList();
-
-        if (rows.Count == 0)
+        if (summaries.Count == 0)
         {
             return "no sessions — run `devlog derive` first\n";
         }
 
-        sb.AppendLine($"=== LAST {rows.Count} SESSIONS ===");
+        var sb = new StringBuilder();
+
+        sb.AppendLine($"=== LAST {summaries.Count} SESSIONS ===");
         sb.AppendLine();
 
         long longest = 0;
 
-        foreach (var r in rows)
+        foreach (var summary in summaries)
         {
-            var start = DateTimeOffset.FromUnixTimeMilliseconds((long)r.start_utc).ToLocalTime();
-            var end = DateTimeOffset.FromUnixTimeMilliseconds((long)r.end_utc).ToLocalTime();
-            var seconds = ((long)r.end_utc - (long)r.start_utc) / 1000;
+            var s = summary.Session;
+            var start = s.Start.ToLocalTime();
+            var end = s.End.ToLocalTime();
+            long seconds = s.DurationSeconds;
             longest = Math.Max(longest, seconds);
 
-            var label = (string?)r.label ?? (string?)r.project ?? (string)r.category;
-            var interruptions = (long)r.interruptions;
-            var commitCount = (long)r.commit_count;
+            var label = s.Label ?? s.Project ?? s.Category.ToString();
 
             // Blank rather than "0 commits" for non-coding sessions - a learning
             // or communication session producing no commits is expected, not a
             // gap worth drawing the eye to.
-            var output = commitCount > 0
-                ? $"{commitCount} commit{(commitCount == 1 ? "" : "s")} +{r.ins}/-{r.del}"
+            var output = summary.CommitCount > 0
+                ? $"{summary.CommitCount} commit{(summary.CommitCount == 1 ? "" : "s")} "
+                  + $"+{summary.Insertions}/-{summary.Deletions}"
                 : "";
 
             sb.AppendLine(
                 $"  {start:MM-dd HH:mm}–{end:HH:mm}  {FormatHeld(seconds),8}  "
-                + $"{(string)r.category,-14} {Fit(label, 22)} "
-                + $"deep={FormatHeld((long)r.deep_seconds),7}  "
-                + $"{interruptions} int  {r.activity_count} act  {output}");
+                + $"{s.Category.ToString(),-14} {Fit(label, 22)} "
+                + $"deep={FormatHeld(s.DeepSeconds),7}  "
+                + $"{s.Interruptions} int  {summary.ActivityCount} act  {output}");
         }
 
         sb.AppendLine();
@@ -343,11 +332,7 @@ public sealed class StatsReporter(ISqliteConnectionFactory factory)
             ? "  WARNING: a session over 4h almost certainly spans a lock or shutdown."
             : "  OK: no session long enough to suggest a span crossed a boundary.");
 
-        var unclassified = db.ExecuteScalar<long>(
-            """
-            SELECT COALESCE(SUM(end_utc - start_utc) / 1000, 0)
-            FROM activity WHERE category = 'Other';
-            """);
+        var unclassified = await reader.GetUnclassifiedSecondsAsync(ct).ConfigureAwait(false);
 
         sb.AppendLine($"  unclassified activity time: {FormatHeld(unclassified)}  (see `devlog unknowns`)");
 

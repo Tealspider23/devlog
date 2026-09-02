@@ -95,7 +95,8 @@ public static class DiagnosticCommands
         CommandLine.TrySetUtf8Console();
 
         Console.WriteLine(host.Services.GetRequiredService<StatsReporter>()
-            .Sessions(cli.ValueOrDefault("--sessions", 40)));
+            .SessionsAsync(cli.ValueOrDefault("--sessions", 40))
+            .GetAwaiter().GetResult());
 
         return 0;
     }

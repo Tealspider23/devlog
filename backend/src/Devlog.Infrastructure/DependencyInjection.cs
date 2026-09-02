@@ -28,6 +28,11 @@ public static class DependencyInjection
         services.AddSingleton<ActivityStore>();
         services.AddSingleton<SessionStore>();
 
+        // The read half. Separate from the writers above because it is the one
+        // thing both the terminal and the API consume — one query, two
+        // renderers, so they cannot disagree about what a session was.
+        services.AddSingleton<ISessionReader, SessionReader>();
+
         // Git enrichment. Re-scannable rather than append-only: --scan-git
         // rebuilds rows from disk, --derive re-links them with no disk access.
         services.AddSingleton<ICommitStore, CommitStore>();
