@@ -76,6 +76,12 @@ export interface SessionDetailDto {
   commits: CommitDto[]
 }
 
+export interface GitScanResultDto {
+  scanned: number
+  skipped: number
+  reposFailed: number
+}
+
 export interface DeriveResultDto {
   rawEvents: number
   afterNoise: number

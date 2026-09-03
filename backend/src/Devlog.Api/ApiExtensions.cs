@@ -57,6 +57,7 @@ public static class ApiExtensions
         v1.MapSessionEndpoints();
         v1.MapClassificationEndpoints();
         v1.MapDeriveEndpoints();
+        v1.MapGitScanEndpoints();
 
         return app;
     }

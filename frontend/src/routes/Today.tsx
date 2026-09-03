@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { derive, getTimeline } from '../api/timeline'
+import { derive, getTimeline, scanGit } from '../api/timeline'
 import { SessionDetail } from '../components/sessions/SessionDetail'
 import { StatCard } from '../components/stats/StatCard'
 import { TopBar } from '../components/shell/TopBar'
@@ -24,10 +24,24 @@ export function Today() {
     },
   })
 
+  // The Refresh button's full pipeline: walk every configured repo for new
+  // commits, then let the timeline query's own refetch re-derive (so those
+  // commits attach to sessions) and re-fetch. scanGit is deliberately not
+  // part of the automatic load-time query above — it hits disk across every
+  // repo and is too slow to run on every page load.
+  const scanAndRefresh = useMutation({
+    mutationFn: scanGit,
+    onSuccess: () => refetch(),
+  })
+
+  const busyLabel = scanAndRefresh.isPending ? 'Scanning git…' : isRefetching ? 'Deriving…' : null
+
+  const onRefresh = () => scanAndRefresh.mutate()
+
   if (isPending) {
     return (
       <div className="flex flex-col gap-6">
-        <TopBar dateIso={dateIso} isRefetching onRefresh={() => refetch()} />
+        <TopBar dateIso={dateIso} busyLabel="Loading…" onRefresh={onRefresh} />
         <div className="animate-pulse rounded-[var(--radius-card)] border border-line bg-surface py-16" />
       </div>
     )
@@ -36,7 +50,7 @@ export function Today() {
   if (isError) {
     return (
       <div className="flex flex-col gap-6">
-        <TopBar dateIso={dateIso} isRefetching={false} onRefresh={() => refetch()} />
+        <TopBar dateIso={dateIso} busyLabel={busyLabel} onRefresh={onRefresh} />
         <ErrorState error={error} onRetry={() => refetch()} />
       </div>
     )
@@ -52,7 +66,7 @@ export function Today() {
 
   return (
     <div className="flex flex-col gap-6">
-      <TopBar dateIso={dateIso} isRefetching={isRefetching} onRefresh={() => refetch()} />
+      <TopBar dateIso={dateIso} busyLabel={busyLabel} onRefresh={onRefresh} />
 
       {sessions.length === 0 ? (
         <EmptyState

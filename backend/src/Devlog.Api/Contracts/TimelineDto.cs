@@ -20,7 +20,7 @@ public sealed record ClassifyRequest(string Identity, string Category, string? K
 
 public sealed record ClassifyResponse(string Identity, string Category, bool PromotedToMixed);
 
-/// <summary>Mirrors <c>Devlog.Host.Derivation.DerivationRunner.DerivationResult</c> for <c>POST /v1/derive</c>.</summary>
+/// <summary>Mirrors <c>DerivationResult</c> for <c>POST /v1/derive</c>.</summary>
 public sealed record DeriveResultDto(
     int RawEvents,
     int AfterNoise,
@@ -31,3 +31,6 @@ public sealed record DeriveResultDto(
     int CommitsLinked,
     int CommitsUnattached,
     double ElapsedMs);
+
+/// <summary>Mirrors <c>GitScanSummary</c> for <c>POST /v1/scan-git</c>.</summary>
+public sealed record GitScanResultDto(int Scanned, int Skipped, int ReposFailed);

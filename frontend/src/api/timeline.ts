@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { DeriveResultDto, SessionDetailDto, TimelineDto } from '../types/api'
+import type { DeriveResultDto, GitScanResultDto, SessionDetailDto, TimelineDto } from '../types/api'
 
 export function getTimeline(dateIso: string): Promise<TimelineDto> {
   return api.get<TimelineDto>(`/v1/timeline?date=${dateIso}`)
@@ -17,4 +17,14 @@ export function getSession(id: number): Promise<SessionDetailDto> {
  */
 export function derive(): Promise<DeriveResultDto> {
   return api.post<DeriveResultDto>('/v1/derive')
+}
+
+/**
+ * Walks every configured repo on disk — the slow half of git enrichment.
+ * Deliberately not part of the automatic load-time query; triggered only by
+ * the Refresh button, which then re-derives so the new commits attach to
+ * sessions before the timeline refetches.
+ */
+export function scanGit(): Promise<GitScanResultDto> {
+  return api.post<GitScanResultDto>('/v1/scan-git')
 }

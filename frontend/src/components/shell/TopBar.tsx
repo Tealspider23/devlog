@@ -2,11 +2,12 @@ import { formatDateHeading } from '../../lib/format'
 
 export function TopBar({
   dateIso,
-  isRefetching,
+  busyLabel,
   onRefresh,
 }: {
   dateIso: string
-  isRefetching: boolean
+  /** null when idle; otherwise what Refresh is doing right now — "Scanning git…" then "Deriving…". */
+  busyLabel: string | null
   onRefresh: () => void
 }) {
   return (
@@ -18,10 +19,10 @@ export function TopBar({
 
       <button
         onClick={onRefresh}
-        disabled={isRefetching}
+        disabled={busyLabel !== null}
         className="rounded-full border border-line bg-raised px-4 py-2 text-xs text-muted transition-colors hover:border-accent-dim hover:text-ink disabled:opacity-50"
       >
-        {isRefetching ? 'Deriving…' : 'Refresh'}
+        {busyLabel ?? 'Refresh'}
       </button>
     </div>
   )

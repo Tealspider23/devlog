@@ -6,8 +6,6 @@ using Devlog.Infrastructure.Git;
 
 namespace Devlog.Host.Derivation;
 
-public sealed record GitScanSummary(int Scanned, int Skipped, int ReposFailed);
-
 /// <summary>
 /// The disk-touching half of git enrichment. Kept separate from
 /// <see cref="DerivationRunner"/>, which only ever reads what this already
@@ -18,7 +16,7 @@ public sealed class GitScanRunner(
     ICommitStore commitStore,
     GitScanner scanner,
     GitOptions options,
-    ILogger<GitScanRunner> logger)
+    ILogger<GitScanRunner> logger) : IGitScanRunner
 {
     public async Task<GitScanSummary> RunAsync(CancellationToken ct = default)
     {

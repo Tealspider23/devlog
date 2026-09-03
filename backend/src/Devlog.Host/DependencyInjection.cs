@@ -120,6 +120,7 @@ public static class DependencyInjection
         // (Windows-only) project. Same singleton instance either way — this is
         // not a second object, just a second door into it.
         services.AddSingleton<IDerivationRunner>(sp => sp.GetRequiredService<DerivationRunner>());
+        services.AddSingleton<IGitScanRunner>(sp => sp.GetRequiredService<GitScanRunner>());
 
         services.AddHostedService<CollectorService>();
 
