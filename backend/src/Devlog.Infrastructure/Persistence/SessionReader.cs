@@ -74,6 +74,22 @@ public sealed class SessionReader(ISqliteConnectionFactory factory) : ISessionRe
         return [.. rows.Reverse().Select(r => r.ToDomain())];
     }
 
+    public async Task<SessionSummary?> GetByIdAsync(long sessionId, CancellationToken ct = default)
+    {
+        await using var connection = await factory.OpenAsync(ct).ConfigureAwait(false);
+
+        var row = await connection.QuerySingleOrDefaultAsync<SummaryRow>(new CommandDefinition(
+            $"""
+             SELECT {SummaryColumns}
+             FROM session s
+             WHERE s.id = @sessionId;
+             """,
+            new { sessionId },
+            cancellationToken: ct)).ConfigureAwait(false);
+
+        return row?.ToDomain();
+    }
+
     public async Task<List<Activity>> GetActivitiesAsync(long sessionId, CancellationToken ct = default)
     {
         await using var connection = await factory.OpenAsync(ct).ConfigureAwait(false);
@@ -111,6 +127,24 @@ public sealed class SessionReader(ISqliteConnectionFactory factory) : ISessionRe
         return [.. rows.Select(r => r.ToDomain())];
     }
 
+    public async Task<List<CommitRecord>> GetCommitsForSessionAsync(long sessionId, CancellationToken ct = default)
+    {
+        await using var connection = await factory.OpenAsync(ct).ConfigureAwait(false);
+
+        var rows = await connection.QueryAsync<CommitRow>(new CommandDefinition(
+            """
+            SELECT sha, repo, project, ts_utc, message, branch, author_email,
+                   files_changed, insertions, deletions, languages, is_merge, session_id
+            FROM commit_record
+            WHERE session_id = @sessionId
+            ORDER BY ts_utc;
+            """,
+            new { sessionId },
+            cancellationToken: ct)).ConfigureAwait(false);
+
+        return [.. rows.Select(r => r.ToDomain())];
+    }
+
     public async Task<long> GetUnclassifiedSecondsAsync(CancellationToken ct = default)
     {
         await using var connection = await factory.OpenAsync(ct).ConfigureAwait(false);
@@ -120,6 +154,20 @@ public sealed class SessionReader(ISqliteConnectionFactory factory) : ISessionRe
             SELECT COALESCE(SUM(end_utc - start_utc) / 1000, 0)
             FROM activity WHERE category = 'Other';
             """,
+            cancellationToken: ct)).ConfigureAwait(false);
+    }
+
+    public async Task<long> GetUnclassifiedSecondsAsync(long fromUtc, long toUtc, CancellationToken ct = default)
+    {
+        await using var connection = await factory.OpenAsync(ct).ConfigureAwait(false);
+
+        return await connection.ExecuteScalarAsync<long>(new CommandDefinition(
+            """
+            SELECT COALESCE(SUM(MIN(end_utc, @toUtc) - MAX(start_utc, @fromUtc)) / 1000, 0)
+            FROM activity
+            WHERE category = 'Other' AND start_utc < @toUtc AND end_utc > @fromUtc;
+            """,
+            new { fromUtc, toUtc },
             cancellationToken: ct)).ConfigureAwait(false);
     }
 

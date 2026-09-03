@@ -6,17 +6,6 @@ using Devlog.Infrastructure.Persistence;
 
 namespace Devlog.Host.Derivation;
 
-public sealed record DerivationResult(
-    int RawEvents,
-    int AfterNoise,
-    int Activities,
-    int Sessions,
-    int PendingIdentities,
-    int UnclassifiedSeconds,
-    int CommitsLinked,
-    int CommitsUnattached,
-    TimeSpan Elapsed);
-
 /// <summary>
 /// Rebuilds the entire derived half of the database from <c>raw_event</c>.
 /// <para>
@@ -38,7 +27,7 @@ public sealed class DerivationRunner(
     ICommitStore commitStore,
     DerivationOptions options,
     GitOptions gitOptions,
-    ILogger<DerivationRunner> logger)
+    ILogger<DerivationRunner> logger) : IDerivationRunner
 {
     public async Task<DerivationResult> RunAsync(CancellationToken ct = default)
     {

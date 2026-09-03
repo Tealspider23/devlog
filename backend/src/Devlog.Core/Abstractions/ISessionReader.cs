@@ -40,6 +40,9 @@ public interface ISessionReader
     /// </summary>
     Task<List<SessionSummary>> GetRecentAsync(int count, CancellationToken ct = default);
 
+    /// <summary>One session by id, or null. The session-detail page's query.</summary>
+    Task<SessionSummary?> GetByIdAsync(long sessionId, CancellationToken ct = default);
+
     /// <summary>
     /// The activities that formed one session, in order. Powers session detail,
     /// and is the exact input the narration job needs to see a sequence rather
@@ -51,9 +54,23 @@ public interface ISessionReader
     Task<List<CommitRecord>> GetCommitsAsync(long fromUtc, long toUtc, CancellationToken ct = default);
 
     /// <summary>
-    /// Seconds of activity still carrying no confident category. Reported on its
-    /// own rather than folded into a real bucket, so it cannot quietly flatter
-    /// the focus ratio.
+    /// Commits attached to one session. Filtered by <c>session_id</c> rather than
+    /// by the session's own time window, because a commit's timestamp landing
+    /// inside a window is not the same fact as the linker having attached it
+    /// there — the two can differ at a session boundary.
+    /// </summary>
+    Task<List<CommitRecord>> GetCommitsForSessionAsync(long sessionId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Seconds of activity still carrying no confident category, across the
+    /// whole log. Reported on its own rather than folded into a real bucket, so
+    /// it cannot quietly flatter the focus ratio. The terminal's figure.
     /// </summary>
     Task<long> GetUnclassifiedSecondsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// The same figure, scoped to a window. A day view showing the all-time total
+    /// on every single day would be worse than not showing the number at all.
+    /// </summary>
+    Task<long> GetUnclassifiedSecondsAsync(long fromUtc, long toUtc, CancellationToken ct = default);
 }

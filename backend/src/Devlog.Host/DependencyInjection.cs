@@ -1,3 +1,5 @@
+using Devlog.Api;
+using Devlog.Core.Abstractions;
 using Devlog.Core.Configuration;
 using Devlog.Host.Derivation;
 using Devlog.Host.Diagnostics;
@@ -29,10 +31,28 @@ public static class DependencyInjection
         var options = builder.BindOptions();
         builder.AddDevlogLogging(options, quietConsole);
 
+        var api = builder.BindApiOptions();
+
         builder.Services.AddDevlogInfrastructure();
         builder.Services.AddDevlogHostServices();
+        builder.Services.AddDevlogApi(api);
 
         return builder;
+    }
+
+    /// <summary>
+    /// Separate from <see cref="BindOptions"/> only because <c>Devlog.Host</c>'s
+    /// <c>Program.cs</c> also needs <see cref="ApiOptions.Port"/> before
+    /// <c>AddDevlog</c> runs, to configure Kestrel's loopback bind at builder
+    /// time. Binding twice from the same section is harmless — it is
+    /// stateless, side-effect-free config parsing — and it avoids reshaping the
+    /// return contract of the widely-called <c>AddDevlog</c>.
+    /// </summary>
+    private static ApiOptions BindApiOptions(this IHostApplicationBuilder builder)
+    {
+        var api = builder.Configuration.GetSection(ApiOptions.SectionName).Get<ApiOptions>() ?? new ApiOptions();
+        builder.Services.AddSingleton(api);
+        return api;
     }
 
     /// <summary>
@@ -94,6 +114,12 @@ public static class DependencyInjection
         services.AddSingleton<StatsReporter>();
         services.AddSingleton<DerivationRunner>();
         services.AddSingleton<GitScanRunner>();
+
+        // Exposed a second way, as the interface Devlog.Core defines, so
+        // Devlog.Api's endpoints can depend on it without a reference to this
+        // (Windows-only) project. Same singleton instance either way — this is
+        // not a second object, just a second door into it.
+        services.AddSingleton<IDerivationRunner>(sp => sp.GetRequiredService<DerivationRunner>());
 
         services.AddHostedService<CollectorService>();
 

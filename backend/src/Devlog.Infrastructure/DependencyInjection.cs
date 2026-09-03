@@ -24,6 +24,12 @@ public static class DependencyInjection
         services.AddSingleton<OverrideStore>();
         services.AddSingleton<ClassificationRuleStore>();
 
+        // Same instance, exposed a second way — the interface Devlog.Core
+        // defines, so Devlog.Api can depend on it without a reference to this
+        // (Windows-only) project. RecordSightingsAsync stays derivation-internal
+        // and is reached only through the concrete type above.
+        services.AddSingleton<IClassificationRuleStore>(sp => sp.GetRequiredService<ClassificationRuleStore>());
+
         // Derived stores — rebuilt wholesale on every derivation
         services.AddSingleton<ActivityStore>();
         services.AddSingleton<SessionStore>();

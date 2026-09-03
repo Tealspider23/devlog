@@ -424,6 +424,8 @@ public static class DiagnosticCommands
         var env = host.Services.GetRequiredService<IHostEnvironment>();
         var devlog = host.Services.GetRequiredService<Devlog.Core.Configuration.DevlogOptions>();
         var git = host.Services.GetRequiredService<Devlog.Core.Configuration.GitOptions>();
+        var api = host.Services.GetRequiredService<Devlog.Core.Configuration.ApiOptions>();
+        var tokenPath = Path.Combine(Path.GetDirectoryName(devlog.ResolveDatabasePath())!, "api-token.txt");
 
         Console.WriteLine($"""
 
@@ -433,6 +435,11 @@ public static class DiagnosticCommands
               excluded processes : {(devlog.ExcludedProcesses.Length == 0 ? "(none)" : string.Join(", ", devlog.ExcludedProcesses))}
               excluded titles    : {(devlog.ExcludedTitlePatterns.Length == 0 ? "(none)" : string.Join(", ", devlog.ExcludedTitlePatterns))}
               git repos          : {git.Repos.Count}
+
+              api                : {(api.Enabled ? "enabled" : "DISABLED — only /health answers")}
+              api address        : http://127.0.0.1:{api.Port}  (loopback only, never reachable off this machine)
+              api token          : {(File.Exists(tokenPath) ? $"present at {tokenPath}" : "not yet generated — created automatically the first time the collector runs")}
+              api dev CORS       : {(string.IsNullOrWhiteSpace(api.DevCorsOrigin) ? "off (production posture)" : api.DevCorsOrigin)}
             """);
 
         foreach (var r in git.Repos)

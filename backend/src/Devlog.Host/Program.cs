@@ -1,11 +1,17 @@
+using System.Net;
 using System.Windows.Forms;
+using Devlog.Api;
 using Devlog.Core.Abstractions;
+using Devlog.Core.Configuration;
 using Devlog.Host.Commands;
 using Devlog.Host.HostedServices;
 using Devlog.Host.Tray;
 using Devlog.Infrastructure.Migrations;
 using Devlog.Infrastructure.Persistence;
 using Devlog.Infrastructure.Windows;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 
 namespace Devlog.Host;
 
@@ -33,7 +39,12 @@ internal static class Program
         // found nothing, and every setting silently fell back to its C#
         // hardcoded default with no error. AppContext.BaseDirectory is the one
         // location that is correct regardless of how the process was started.
-        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+        //
+        // WebApplication.CreateBuilder rather than the plain generic host: this
+        // process now hosts devlog's own API alongside the tray and the
+        // collector. Devlog.Cli deliberately stays on the plain generic host —
+        // see its own Program.cs — because the CLI must never open a socket.
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
             Args = args,
             ContentRootPath = AppContext.BaseDirectory
@@ -46,6 +57,20 @@ internal static class Program
         // no business being in it.
         builder.Configuration.AddJsonFile("appsettings.local.json", optional: true, reloadOnChange: false);
 
+        // Read once, here, purely to configure Kestrel's bind before AddDevlog
+        // registers the same values for DI. See the comment on BindApiOptions
+        // for why this one section is read twice rather than restructuring
+        // AddDevlog's return type.
+        var apiOptions = builder.Configuration.GetSection(ApiOptions.SectionName).Get<ApiOptions>() ?? new ApiOptions();
+
+        builder.WebHost.ConfigureKestrel(kestrel =>
+        {
+            // Loopback only. This address answers with the entire activity
+            // log to anyone who can reach it — 0.0.0.0 or any other address
+            // must never appear here, on this machine or anyone else's.
+            kestrel.Listen(IPAddress.Loopback, apiOptions.Port);
+        });
+
         builder.AddDevlog();
 
         using var host = builder.Build();
@@ -53,6 +78,22 @@ internal static class Program
         // Schema first: nothing may touch the database before WAL is set and
         // migrations have run.
         host.Services.GetRequiredService<MigrationRunner>().Run();
+
+        // "Off" does not mean the port stops listening — Kestrel is already
+        // configured above, before args were known. It means nothing beyond
+        // /health answers, which needs no separate code path: routes are
+        // simply not mapped, so they 404. A real "stop listening" toggle
+        // would need to skip web-server startup entirely, which WebApplication
+        // does not offer a clean hook for — not worth the complexity for a
+        // reflex switch nobody has asked to flip yet.
+        if (apiOptions.Enabled)
+        {
+            host.MapDevlogApi(apiOptions);
+        }
+        else
+        {
+            host.MapGet("/health", () => Results.Ok(new { status = "disabled" }));
+        }
 
         // No arguments means tray mode — a logon launch, a shortcut, a
         // double-click. Anything else was meant as a command, and if it is not

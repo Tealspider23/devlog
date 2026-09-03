@@ -1,4 +1,5 @@
 using Dapper;
+using Devlog.Core.Abstractions;
 using Devlog.Core.Domain;
 
 namespace Devlog.Infrastructure.Persistence;
@@ -6,7 +7,7 @@ namespace Devlog.Infrastructure.Persistence;
 /// <summary>
 /// The verdict cache. SOURCE OF TRUTH — never rebuilt by derivation.
 /// </summary>
-public sealed class ClassificationRuleStore(ISqliteConnectionFactory factory)
+public sealed class ClassificationRuleStore(ISqliteConnectionFactory factory) : IClassificationRuleStore
 {
     public async Task<List<ClassificationRule>> GetAllAsync(CancellationToken ct = default)
     {
