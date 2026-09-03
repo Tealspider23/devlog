@@ -1,0 +1,66 @@
+@import 'tailwindcss';
+
+/*
+  The palette from the reference design, with one rule added: the accent pair
+  means something. Lime is time that produced; orange is time that was
+  interrupted or consumed. A colour that means nothing, on a dashboard whose
+  entire point is honesty, would be the wrong first impression.
+*/
+@theme {
+  --color-page: #0a0a0a;
+  --color-surface: #141414;
+  --color-raised: #1c1c1c;
+  --color-line: #262626;
+
+  --color-ink: #fafafa;
+  --color-muted: #a1a1aa;
+  --color-faint: #71717a;
+
+  --color-accent: #c3f53c;
+  --color-accent-dim: #8fbf1f;
+  --color-warn: #ff8c42;
+
+  /* Category colours. Used by the timeline band and the legend, defined once
+     here so a category can never be one colour in one place and another
+     elsewhere. Mirrors lib/categories.ts. */
+  --color-cat-coding: #c3f53c;
+  --color-cat-learning: #5fd3f3;
+  --color-cat-communication: #a78bfa;
+  --color-cat-meeting: #f472b6;
+  --color-cat-filemanagement: #94a3b8;
+  --color-cat-distraction: #ff8c42;
+  --color-cat-personal: #fbbf24;
+  --color-cat-other: #3f3f46;
+
+  --radius-card: 20px;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+  Unclassified time. Hatched rather than flat grey, so it reads as "not yet
+  known" instead of "nothing happened" — the distinction the whole
+  classification design exists to preserve.
+*/
+.hatched {
+  background-image: repeating-linear-gradient(
+    45deg,
+    var(--color-cat-other),
+    var(--color-cat-other) 3px,
+    #2c2c33 3px,
+    #2c2c33 6px
+  );
+}
