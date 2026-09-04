@@ -1,5 +1,6 @@
 using Devlog.Core.Abstractions;
 using Devlog.Core.Domain;
+using Devlog.Core.Metrics;
 using Devlog.Host.Derivation;
 using Devlog.Host.Diagnostics;
 using Devlog.Host.Startup;
@@ -53,6 +54,11 @@ public static class DiagnosticCommands
         if (cli.Has("--commits"))
         {
             return Commits(host, cli);
+        }
+
+        if (cli.Has("--digest"))
+        {
+            return Digest(host, cli);
         }
 
         if (cli.Has("--config"))
@@ -291,6 +297,49 @@ public static class DiagnosticCommands
         var unattached = commits.Count(c => c.SessionId is null);
         Console.WriteLine($"\n  {commits.Count} total, {unattached} unattached\n");
 
+        return 0;
+    }
+
+    /// <summary>
+    /// The brag document. Defaults to the last 7 days; <c>--week</c> and
+    /// <c>--month</c> are named shortcuts for the same thing, not a different
+    /// code path — everything routes through <see cref="DigestBuilder"/>, the
+    /// same generator <c>GET /v1/digest</c> calls.
+    /// </summary>
+    private static int Digest(IHost host, CommandLine cli)
+    {
+        CommandLine.TrySetUtf8Console();
+
+        var today = DateOnly.FromDateTime(DateTime.Now);
+
+        var (from, to) = cli switch
+        {
+            _ when cli.Has("--month") => (today.AddDays(-29), today),
+            _ when cli.Has("--week") => (today.AddDays(-6), today),
+            _ => (
+                DateOnly.TryParse(cli.Value("--from"), out var f) ? f : today.AddDays(-6),
+                DateOnly.TryParse(cli.Value("--to"), out var t) ? t : today)
+        };
+
+        if (from > to)
+        {
+            Console.WriteLine($"\n  --from ({from:yyyy-MM-dd}) is after --to ({to:yyyy-MM-dd}).\n");
+            return 1;
+        }
+
+        var reader = host.Services.GetRequiredService<ISessionReader>();
+        var (_, markdown) = DigestBuilder.BuildAsync(reader, from, to).GetAwaiter().GetResult();
+
+        var outPath = cli.Value("--out");
+
+        if (outPath is null)
+        {
+            Console.WriteLine(markdown);
+            return 0;
+        }
+
+        File.WriteAllText(outPath, markdown);
+        Console.WriteLine($"\n  Wrote {markdown.Length} characters to {outPath}\n");
         return 0;
     }
 

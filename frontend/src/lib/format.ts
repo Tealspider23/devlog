@@ -16,7 +16,17 @@ export function formatTime(iso: string): string {
 
 /** YYYY-MM-DD in the viewer's own local calendar — what /v1/timeline?date= expects. */
 export function todayIso(): string {
+  return dateIso(new Date())
+}
+
+/** YYYY-MM-DD for a date N days before today, local calendar — the digest's default range. */
+export function daysAgoIso(n: number): string {
   const d = new Date()
+  d.setDate(d.getDate() - n)
+  return dateIso(d)
+}
+
+function dateIso(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 

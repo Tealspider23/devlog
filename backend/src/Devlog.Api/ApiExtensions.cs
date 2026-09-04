@@ -1,4 +1,5 @@
 using Devlog.Api.Endpoints;
+using Devlog.Api.Frontend;
 using Devlog.Api.Security;
 using Devlog.Core.Configuration;
 using Microsoft.AspNetCore.Builder;
@@ -58,6 +59,12 @@ public static class ApiExtensions
         v1.MapClassificationEndpoints();
         v1.MapDeriveEndpoints();
         v1.MapGitScanEndpoints();
+        v1.MapDigestEndpoints();
+
+        // Last: the dashboard's fallback must lose to every route above it.
+        // Mapped inside this method rather than beside it so that Api:Enabled
+        // switches off the UI along with the data it would try to load.
+        app.MapDevlogFrontend();
 
         return app;
     }

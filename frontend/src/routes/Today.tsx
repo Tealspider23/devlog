@@ -83,7 +83,7 @@ export function Today() {
               value={String(commitCount)}
               caption={commitCount > 0 ? `+${insertions}/-${deletions}` : undefined}
             />
-            <StatCard label="Context switches" value={String(interruptions)} />
+            <StatCard label="Interruptions" value={String(interruptions)} />
           </div>
 
           <TimelineStrip sessions={sessions} commits={commits} selectedId={selectedId} onSelect={setSelectedId} />

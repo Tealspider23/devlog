@@ -25,6 +25,7 @@ public static class CommandCatalog
     public const string Inspect = "INSPECT";
     public const string Build = "BUILD";
     public const string Classify = "CLASSIFY";
+    public const string Report = "REPORT";
     public const string Manage = "MANAGE";
 
     public static readonly CommandInfo[] All =
@@ -40,12 +41,14 @@ public static class CommandCatalog
         new("unknowns", "unknowns [n]",                 "Identities still awaiting a verdict, most time first",     Classify),
         new("classify", "classify <identity> <cat>",    "Answer one by hand; --keyword scopes it to a page",        Classify),
 
+        new("digest",   "digest [--from D] [--to D] [--week|--month] [--out FILE]", "Deterministic brag-document Markdown for a date range", Report),
+
         new("config",     "config",                     "Resolved paths, exclusions and configured repos",          Manage),
         new("startup",    "startup [--enable|--disable]","Launch the collector at logon",                           Manage),
         new("purge-seed", "purge-seed --yes",           "Delete synthetic fixture rows from the raw log",           Manage)
     ];
 
-    public static readonly string[] Groups = [Inspect, Build, Classify, Manage];
+    public static readonly string[] Groups = [Inspect, Build, Classify, Report, Manage];
 
     public static bool IsKnown(string name) =>
         All.Any(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));

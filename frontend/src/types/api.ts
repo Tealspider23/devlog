@@ -93,3 +93,59 @@ export interface DeriveResultDto {
   commitsUnattached: number
   elapsedMs: number
 }
+
+export interface LongestBlockDto {
+  startIso: string
+  endIso: string
+  project: string | null
+  deepSeconds: number
+}
+
+export interface BestDayDto {
+  date: string
+  deepSeconds: number
+}
+
+export interface ProjectTimeDto {
+  project: string
+  seconds: number
+}
+
+export interface CategoryTimeDto {
+  category: ActivityCategory
+  seconds: number
+}
+
+/**
+ * Mirrors Devlog.Api.Contracts.DigestDto. `markdown` is the exact text
+ * `devlog digest` would write to a file for the same range — see
+ * Devlog.Core.Metrics.DigestBuilder. Render cards from the structured fields;
+ * the Copy button copies `markdown` verbatim so the two can never disagree.
+ */
+export interface DigestDto {
+  from: string
+  to: string
+  trackedSeconds: number
+  deepSeconds: number
+  focusRatio: number
+  sessionCount: number
+  activeDays: number
+  interruptionsTotal: number
+  interruptionsPerActiveDay: number
+  longestBlock: LongestBlockDto | null
+  bestDay: BestDayDto | null
+  timeByProject: ProjectTimeDto[]
+  timeByCategory: CategoryTimeDto[]
+  zeroOutputSessionCount: number
+  zeroOutputSeconds: number
+  commitCount: number
+  insertions: number
+  deletions: number
+  projectsShipped: string[]
+  languages: string[]
+  firstTimeLanguages: string[]
+  ticketIds: string[]
+  unattachedCommitsInRange: number
+  unclassifiedSeconds: number
+  markdown: string
+}
