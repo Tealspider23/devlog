@@ -48,6 +48,15 @@ const token = readApiToken()
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+
+  // Built straight into the collector's wwwroot, so the shipped app is served
+  // from the same origin as the API it calls and production needs no CORS at
+  // all. Gitignored -- this is build output; the source of truth is src/.
+  build: {
+    outDir: '../backend/src/Devlog.Host/wwwroot',
+    emptyOutDir: true,
+  },
+
   server: {
     port: 5173,
     proxy: {

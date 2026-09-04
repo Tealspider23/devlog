@@ -24,6 +24,10 @@
 .PARAMETER SkipPath
   Publish, but leave the user PATH alone.
 
+.PARAMETER SkipFrontend
+  Publish without rebuilding the dashboard. For backend-only iteration, or on a
+  machine with no Node -- the collector then serves whatever wwwroot it last had.
+
 .EXAMPLE
   .\scripts\install.ps1
   .\scripts\install.ps1 -Configuration Release
@@ -33,7 +37,9 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug',
 
-    [switch]$SkipPath
+    [switch]$SkipPath,
+
+    [switch]$SkipFrontend
 )
 
 $ErrorActionPreference = 'Stop'
@@ -51,6 +57,30 @@ if ($running) {
     Write-Host "Stopping the running collector so its files can be replaced..." -ForegroundColor Yellow
     $running | Stop-Process -Force
     Start-Sleep -Milliseconds 500
+}
+
+# The dashboard is served by the collector out of its own wwwroot, so it has to
+# be built before the publish that copies it. Deliberately here and not as an
+# MSBuild target on Devlog.Host: that would make `dotnet build` and `dotnet test`
+# require Node, which nothing else about the backend does.
+if (-not $SkipFrontend) {
+    $frontend = Join-Path $repo 'frontend'
+
+    Write-Host "Building the dashboard..." -ForegroundColor Cyan
+
+    Push-Location $frontend
+    try {
+        if (-not (Test-Path (Join-Path $frontend 'node_modules'))) {
+            npm ci
+            if ($LASTEXITCODE -ne 0) { throw "npm ci failed." }
+        }
+
+        npm run build
+        if ($LASTEXITCODE -ne 0) { throw "Building the frontend failed." }
+    }
+    finally {
+        Pop-Location
+    }
 }
 
 Write-Host "Publishing $Configuration -> $target" -ForegroundColor Cyan

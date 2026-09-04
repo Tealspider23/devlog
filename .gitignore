@@ -34,6 +34,9 @@ artifacts/
 # ---- Node / frontend ----
 node_modules/
 dist/
+# Where `npm run build` puts the frontend so the collector can serve it.
+# Build output, not source -- see frontend/vite.config.ts.
+backend/src/Devlog.Host/wwwroot/
 dist-ssr/
 .vite/
 *.local

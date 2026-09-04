@@ -162,6 +162,7 @@ internal static class Program
         using var tray = new TrayIconContext(
             host.Services.GetRequiredService<PauseController>(),
             host.Services.GetRequiredService<ISqliteConnectionFactory>(),
+            host.Services.GetRequiredService<ApiOptions>(),
             requestExit: lifetime.StopApplication);
 
         // Hooks MUST be installed here, on this thread, and nowhere else.

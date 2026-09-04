@@ -17,6 +17,17 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
+  <!--
+    The built frontend, which `npm run build` writes here (see
+    frontend/vite.config.ts). This SDK is Worker, not Web, so wwwroot is not
+    picked up automatically the way it would be in a web project - without this
+    a published collector has an API and no UI. Matching nothing on a fresh
+    clone is fine: the folder is gitignored build output.
+  -->
+  <ItemGroup>
+    <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\Devlog.Core\Devlog.Core.csproj" />
     <ProjectReference Include="..\Devlog.Infrastructure\Devlog.Infrastructure.csproj" />
