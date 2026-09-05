@@ -123,7 +123,14 @@ public sealed class SessionBuilder(DerivationOptions options)
             StartUtc = first.StartUtc,
             EndUtc = endUtc,
             ActivityKey = key,
-            Project = first.Category == ActivityCategory.Coding ? first.Context : null,
+
+            // Straight from the activity, which sets it only when an extraction
+            // rule actually resolved a repository. This used to promote Context
+            // whenever the category was Coding, which is how "GitLab", "Windows
+            // PowerShell" and raw SSMS window titles became projects in the
+            // digest. Nothing non-coding resolves a project, so no category test
+            // is needed here any more.
+            Project = first.Project,
             Category = first.Category,
             Interruptions = interruptions,
             DeepSeconds = deepSeconds

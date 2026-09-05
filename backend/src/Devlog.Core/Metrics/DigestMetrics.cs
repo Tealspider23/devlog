@@ -69,6 +69,22 @@ public sealed record DigestMetrics
 
     public required IReadOnlyList<CategoryTime> TimeByCategory { get; init; }
 
+    /// <summary>
+    /// Coding time that resolved to no repository — a browser tab, SQL Server
+    /// Management Studio, a bare shell.
+    /// <para>
+    /// Reported rather than dropped. <see cref="TimeByProject"/> necessarily
+    /// excludes it, and letting hours disappear from a breakdown with no
+    /// explanation would trade the old wrong labels for a quiet omission.
+    /// </para>
+    /// <para>
+    /// Scoped to Coding deliberately: an unscoped "no project" bucket would
+    /// sweep in every Learning and Communication session, which never have one
+    /// by design, and the number would mean nothing.
+    /// </para>
+    /// </summary>
+    public required int UnattributedCodingSeconds { get; init; }
+
     /// <summary>Sessions that shipped nothing — not a failure, usually research or debugging.</summary>
     public required int ZeroOutputSessionCount { get; init; }
 

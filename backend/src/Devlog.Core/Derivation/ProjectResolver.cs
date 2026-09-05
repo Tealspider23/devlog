@@ -61,6 +61,27 @@ public sealed class ProjectResolver
         [.. _roots.Select(r => r.Project).Distinct(StringComparer.OrdinalIgnoreCase)];
 
     /// <summary>
+    /// The configured project whose name this string exactly is, or null.
+    /// <para>
+    /// For contexts that carry no path and so cannot be resolved by
+    /// <see cref="Resolve"/> — most importantly a browser tab, where
+    /// <c>palpool-ui - Google Chrome</c> is the running dev server for a repo
+    /// that is genuinely configured. Ignoring those understated every project
+    /// with real browser time against it.
+    /// </para>
+    /// <para>
+    /// Exact match against the configured list only, never a substring or a
+    /// guess: <c>GitLab</c> and <c>GitHub</c> are not configured projects and
+    /// must stay unattributed, which is the whole point of this change.
+    /// </para>
+    /// </summary>
+    public string? ResolveByName(string? name) =>
+        string.IsNullOrWhiteSpace(name)
+            ? null
+            : _roots.FirstOrDefault(r => string.Equals(r.Project, name.Trim(), StringComparison.OrdinalIgnoreCase))
+                .Project;
+
+    /// <summary>
     /// Forward slashes and a trailing separator, so <c>C:\repos\x</c> and
     /// <c>C:\repos\x\</c> compare equal and <c>StartsWith</c> cannot match a
     /// sibling with a shared prefix (<c>palpool</c> vs <c>palpool-ui</c>).

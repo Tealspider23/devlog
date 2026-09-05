@@ -27,10 +27,10 @@ public sealed class ActivityStore(ISqliteConnectionFactory factory)
             await connection.ExecuteAsync(new CommandDefinition(
                 """
                 INSERT INTO activity
-                  (start_utc, end_utc, process_name, activity_key, context, site_identity,
+                  (start_utc, end_utc, process_name, activity_key, context, project, site_identity,
                    category, engagement, title_changes, sample_title, session_id)
                 VALUES
-                  (@StartUtc, @EndUtc, @ProcessName, @ActivityKey, @Context, @SiteIdentity,
+                  (@StartUtc, @EndUtc, @ProcessName, @ActivityKey, @Context, @Project, @SiteIdentity,
                    @Category, @Engagement, @TitleChanges, @SampleTitle, @SessionId);
                 """,
                 activities.Select(a => new
@@ -40,6 +40,7 @@ public sealed class ActivityStore(ISqliteConnectionFactory factory)
                     a.ProcessName,
                     a.ActivityKey,
                     a.Context,
+                    a.Project,
                     a.SiteIdentity,
                     Category = a.Category.ToString(),
                     Engagement = (int)a.Engagement,

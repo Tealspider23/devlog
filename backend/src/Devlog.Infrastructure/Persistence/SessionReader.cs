@@ -96,7 +96,7 @@ public sealed class SessionReader(ISqliteConnectionFactory factory) : ISessionRe
 
         var rows = await connection.QueryAsync<ActivityRow>(new CommandDefinition(
             """
-            SELECT id, start_utc, end_utc, process_name, activity_key, context,
+            SELECT id, start_utc, end_utc, process_name, activity_key, context, project,
                    site_identity, category, engagement, title_changes, sample_title, session_id
             FROM activity
             WHERE session_id = @sessionId
@@ -216,6 +216,7 @@ public sealed class SessionReader(ISqliteConnectionFactory factory) : ISessionRe
         public string? process_name { get; set; }
         public string activity_key { get; set; } = string.Empty;
         public string? context { get; set; }
+        public string? project { get; set; }
         public string? site_identity { get; set; }
         public string? category { get; set; }
         public int engagement { get; set; }
@@ -231,6 +232,7 @@ public sealed class SessionReader(ISqliteConnectionFactory factory) : ISessionRe
             ProcessName = process_name,
             ActivityKey = activity_key,
             Context = context,
+            Project = project,
             SiteIdentity = site_identity,
             Category = ActivityCategoryExtensions.TryParse(category, out var c) ? c : ActivityCategory.Other,
             Engagement = (Engagement)engagement,

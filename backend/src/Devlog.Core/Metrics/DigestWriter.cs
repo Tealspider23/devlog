@@ -80,13 +80,24 @@ public static class DigestWriter
 
         sb.AppendLine();
 
-        if (m.TimeByProject.Count > 0)
+        if (m.TimeByProject.Count > 0 || m.UnattributedCodingSeconds > 0)
         {
             sb.AppendLine("## Time by project");
+
             foreach (var p in m.TimeByProject)
             {
                 sb.AppendLine($"- {p.Project}: {Hours(p.Seconds)}");
             }
+
+            // Stated, never dropped. This is coding time devlog could not tie to
+            // a repository — a browser tab, a database client, a bare shell. It
+            // used to appear above under invented project names like "GitLab"
+            // and whole SSMS window titles; naming it honestly is the fix.
+            if (m.UnattributedCodingSeconds > 0)
+            {
+                sb.AppendLine($"- *Coding time not tied to a repo: {Hours(m.UnattributedCodingSeconds)}*");
+            }
+
             sb.AppendLine();
         }
 

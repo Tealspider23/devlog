@@ -42,7 +42,13 @@ public sealed class DerivationRunner(
 
         var afterNoise = noise.Apply(raw).Count;
 
-        var built = new ActivityBuilder(options, classifier, noise).Build(raw);
+        // The same resolver the git scanner uses, so a repo is named identically
+        // whether it arrived as attention (a window title) or as output (a
+        // commit). Without it the two axes can disagree about what a project is
+        // called, and the digest would put the same work under two names.
+        var projects = new ProjectResolver(gitOptions.Repos);
+
+        var built = new ActivityBuilder(options, classifier, noise, projects).Build(raw);
 
         // Sessions come back with ids assigned and the activities stamped with
         // them, so the two tables are linked without a database round-trip.

@@ -9,6 +9,8 @@ public sealed record ActivityDto(
     int DurationSeconds,
     string? ProcessName,
     string? Context,
+    /// <summary>The repository, when one was genuinely resolved. Null for a browser tab or an app with no extraction rule — see <see cref="Activity.Project"/>.</summary>
+    string? Project,
     string? SiteIdentity,
     string Category,
     string Engagement,
@@ -22,6 +24,7 @@ public sealed record ActivityDto(
         a.DurationSeconds,
         a.ProcessName,
         a.Context,
+        a.Project,
         a.SiteIdentity,
         a.Category.ToString(),
         a.Engagement.ToString(),

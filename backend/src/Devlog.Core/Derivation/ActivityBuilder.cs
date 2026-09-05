@@ -11,7 +11,11 @@ namespace Devlog.Core.Derivation;
 /// without any of them.
 /// </para>
 /// </summary>
-public sealed class ActivityBuilder(DerivationOptions options, Classifier classifier, NoiseFilter noise)
+public sealed class ActivityBuilder(
+    DerivationOptions options,
+    Classifier classifier,
+    NoiseFilter noise,
+    ProjectResolver? projectResolver = null)
 {
     /// <summary>
     /// Events that end a span and start nothing. A duration must never run
@@ -130,7 +134,7 @@ public sealed class ActivityBuilder(DerivationOptions options, Classifier classi
                 endUtc = current.TsUtc + maxSpanMs;
             }
 
-            var extracted = ContextExtractor.Extract(current.ProcessName, current.WindowTitle);
+            var extracted = ContextExtractor.Extract(current.ProcessName, current.WindowTitle, projectResolver);
             var identity = SiteIdentity.For(current.ProcessName, current.WindowTitle);
 
             var classification = classifier.Classify(
@@ -153,6 +157,7 @@ public sealed class ActivityBuilder(DerivationOptions options, Classifier classi
                 ProcessName = current.ProcessName,
                 ActivityKey = BuildKey(current.ProcessName, extracted.Context),
                 Context = extracted.Context,
+                Project = extracted.Project,
                 SiteIdentity = identity,
                 Category = classification.Category,
                 Engagement = ClassifyEngagement(current, classification.Category),

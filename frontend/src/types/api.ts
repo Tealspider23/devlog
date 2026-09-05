@@ -41,6 +41,8 @@ export interface ActivityDto {
   durationSeconds: number
   processName: string | null
   context: string | null
+  /** The repo, when one was genuinely resolved. Null for a browser tab or an app with no extraction rule. */
+  project: string | null
   siteIdentity: string | null
   category: ActivityCategory
   engagement: 'Producing' | 'Consuming' | 'Idle' | 'Away'
@@ -136,6 +138,8 @@ export interface DigestDto {
   bestDay: BestDayDto | null
   timeByProject: ProjectTimeDto[]
   timeByCategory: CategoryTimeDto[]
+  /** Coding time that resolved to no repo — a browser tab, SSMS, a bare shell. Reported, never dropped. */
+  unattributedCodingSeconds: number
   zeroOutputSessionCount: number
   zeroOutputSeconds: number
   commitCount: number

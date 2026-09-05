@@ -21,8 +21,20 @@ public sealed record Activity
     /// <summary>Process + extracted context — what makes two moments "the same thing".</summary>
     public required string ActivityKey { get; init; }
 
-    /// <summary>The stable part: project, channel, folder, page.</summary>
+    /// <summary>The stable part: repo, channel, folder, page. Not necessarily a project — see <see cref="Project"/>.</summary>
     public string? Context { get; init; }
+
+    /// <summary>
+    /// The repository this belongs to, set only when an extraction rule genuinely
+    /// resolved one — null for a browser tab, an unrecognised app, or a terminal
+    /// in a directory that is not a known repo.
+    /// <para>
+    /// Deliberately distinct from <see cref="Context"/>. Promoting context to
+    /// project unconditionally is what made the digest list "GitLab", "Windows
+    /// PowerShell" and a raw SSMS window title among its projects.
+    /// </para>
+    /// </summary>
+    public string? Project { get; init; }
 
     /// <summary>
     /// What was being looked at, for classification purposes — a site name for

@@ -72,6 +72,10 @@ public static partial class MetricsCalculator
             .OrderByDescending(c => c.Seconds)
             .ToList();
 
+        var unattributedCoding = sessions
+            .Where(s => s.Session.Category == ActivityCategory.Coding && s.Session.Project is null)
+            .Sum(s => s.Session.DurationSeconds);
+
         var nonMerge = commits.Where(c => !c.IsMerge).ToList();
 
         var languagesBefore = commitsBeforeRange
@@ -106,6 +110,7 @@ public static partial class MetricsCalculator
             BestDay = bestDay,
             TimeByProject = timeByProject,
             TimeByCategory = timeByCategory,
+            UnattributedCodingSeconds = unattributedCoding,
             ZeroOutputSessionCount = zeroOutput.Count,
             ZeroOutputSeconds = zeroOutput.Sum(s => s.Session.DurationSeconds),
             CommitCount = nonMerge.Count,
