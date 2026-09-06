@@ -683,7 +683,10 @@ public static class DiagnosticCommands
                         {
                             if (m.TryGetProperty("id", out var idProp) && idProp.GetString() is { } id)
                             {
-                                if (string.Equals(id, ai.Model, StringComparison.OrdinalIgnoreCase))
+                                var normalizedId = id.StartsWith("models/", StringComparison.OrdinalIgnoreCase) ? id["models/".Length..] : id;
+                                var normalizedConfig = ai.Model.StartsWith("models/", StringComparison.OrdinalIgnoreCase) ? ai.Model["models/".Length..] : ai.Model;
+
+                                if (string.Equals(normalizedId, normalizedConfig, StringComparison.OrdinalIgnoreCase))
                                 {
                                     matchedModel = id;
                                     break;

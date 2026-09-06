@@ -597,6 +597,20 @@ public sealed class AiJobSwitches
    (LM Studio), with `ConnectTimeoutSeconds`.
 3. **Disabled — and it says so.**
 
+**Hosted Cloud Providers (e.g. Google Gemini):**
+For machines without local GPUs (like an office laptop), configure Google Gemini's OpenAI-compatible endpoint in `appsettings.local.json`:
+```json
+"Ai": {
+  "Enabled": true,
+  "Endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
+  "Model": "gemini--flash",
+  "ApiKey": "<your-google-ai-studio-key>",
+  "ConnectTimeoutSeconds": 5,
+  "RequestTimeoutSeconds": 30
+}
+```
+No vendor SDKs or code changes needed — it speaks the same `/v1/chat/completions` surface directly over HTTPS.
+
 With no provider, devlog stays fully functional: capture, derivation, git
 correlation, the timeline, the deterministic digest. **It must never silently
 degrade**, because silence is indistinguishable from a quiet day, and that is the
