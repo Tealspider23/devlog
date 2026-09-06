@@ -208,6 +208,24 @@ public sealed class ClassificationRuleStore(ISqliteConnectionFactory factory) : 
         return promoted;
     }
 
+    public async Task<List<string>> GetSampleTitlesAsync(string site, int limit = 3, CancellationToken ct = default)
+    {
+        await using var connection = await factory.OpenAsync(ct).ConfigureAwait(false);
+
+        var rows = await connection.QueryAsync<string>(new CommandDefinition(
+            """
+            SELECT DISTINCT sample_title
+            FROM activity
+            WHERE site_identity = @site AND sample_title IS NOT NULL
+            ORDER BY LENGTH(sample_title) DESC
+            LIMIT @limit;
+            """,
+            new { site, limit },
+            cancellationToken: ct)).ConfigureAwait(false);
+
+        return [.. rows.Where(t => !string.IsNullOrWhiteSpace(t))];
+    }
+
     /// <summary>What already answers this exact site or page, and who gave that answer.</summary>
     private sealed class ExistingVerdict
     {

@@ -26,4 +26,10 @@ public interface IClassificationRuleStore
         string source,
         long nowUtc,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Returns up to <paramref name="limit"/> sample titles seen for the given site identity,
+    /// longest first. Used to give the AI classifier real context without scanning full history.
+    /// </summary>
+    Task<List<string>> GetSampleTitlesAsync(string site, int limit = 3, CancellationToken ct = default);
 }
