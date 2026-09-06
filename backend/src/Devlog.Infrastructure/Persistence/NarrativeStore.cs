@@ -101,6 +101,26 @@ public sealed class NarrativeStore(ISqliteConnectionFactory factory) : INarrativ
             cancellationToken: ct)).ConfigureAwait(false);
     }
 
+    public async Task RelinkSessionIdsAsync(IReadOnlyList<Session> sessions, CancellationToken ct = default)
+    {
+        await using var connection = await factory.OpenAsync(ct).ConfigureAwait(false);
+        await using var transaction = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
+
+        await connection.ExecuteAsync(new CommandDefinition(
+            "UPDATE session_narrative SET session_id = NULL;",
+            transaction: transaction,
+            cancellationToken: ct)).ConfigureAwait(false);
+
+        const string sql = "UPDATE session_narrative SET session_id = @Id WHERE session_start_utc = @StartUtc;";
+        await connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            sessions,
+            transaction: transaction,
+            cancellationToken: ct)).ConfigureAwait(false);
+
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+    }
+
     public async Task DeleteAsync(long sessionStartUtc, CancellationToken ct = default)
     {
         await using var connection = await factory.OpenAsync(ct).ConfigureAwait(false);

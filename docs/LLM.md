@@ -603,7 +603,7 @@ For machines without local GPUs (like an office laptop), configure Google Gemini
 "Ai": {
   "Enabled": true,
   "Endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
-  "Model": "gemini--flash",
+  "Model": "gemini-3.7-flash",
   "ApiKey": "<your-google-ai-studio-key>",
   "ConnectTimeoutSeconds": 5,
   "RequestTimeoutSeconds": 30

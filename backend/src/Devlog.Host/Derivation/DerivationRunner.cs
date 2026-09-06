@@ -25,6 +25,7 @@ public sealed class DerivationRunner(
     OverrideStore overrideStore,
     ClassificationRuleStore ruleStore,
     ICommitStore commitStore,
+    INarrativeStore narrativeStore,
     DerivationOptions options,
     GitOptions gitOptions,
     ILogger<DerivationRunner> logger) : IDerivationRunner
@@ -75,6 +76,10 @@ public sealed class DerivationRunner(
         var commits = await commitStore.GetAllAsync(ct).ConfigureAwait(false);
         var linked = new CommitLinker(gitOptions).Link(commits, sessions);
         await commitStore.RelinkAsync(linked, ct).ConfigureAwait(false);
+
+        // Session narratives are keyed durably by session_start_utc, but hold a
+        // foreign-key session_id for query speed. Relink them to the fresh session ids.
+        await narrativeStore.RelinkSessionIdsAsync(sessions, ct).ConfigureAwait(false);
 
         var result = new DerivationResult(
             raw.Count,

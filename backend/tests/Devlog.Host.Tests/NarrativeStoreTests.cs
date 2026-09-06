@@ -155,4 +155,46 @@ public sealed class NarrativeStoreTests : IDisposable
         var all = await _store.GetAllAsync();
         Assert.Equal(2, all.Count);
     }
+
+    [Fact]
+    public async Task RelinkSessionIds_Updates_SessionIds_From_Matching_StartUtc()
+    {
+        var narrative = new SessionNarrative
+        {
+            SessionStartUtc = 5000,
+            SessionEndUtc = 6000,
+            ActivityCount = 4,
+            SessionId = 99,
+            Narrative = "Working on tests",
+            Kind = "feature-work",
+            Workstream = null,
+            Evidence = ["test.cs"],
+            Confidence = 0.9,
+            Model = "m",
+            GeneratedUtc = 7000
+        };
+
+        await _store.UpsertAsync(narrative);
+
+        // Simulate re-derivation renumbering session id to 105
+        var freshSessions = new List<Session>
+        {
+            new()
+            {
+                Id = 105,
+                StartUtc = 5000,
+                EndUtc = 6000,
+                ActivityKey = "test",
+                Category = ActivityCategory.Coding,
+                Interruptions = 0,
+                DeepSeconds = 1000
+            }
+        };
+
+        await _store.RelinkSessionIdsAsync(freshSessions);
+
+        var updated = await _store.GetByStartUtcAsync(5000);
+        Assert.NotNull(updated);
+        Assert.Equal(105, updated.SessionId);
+    }
 }
