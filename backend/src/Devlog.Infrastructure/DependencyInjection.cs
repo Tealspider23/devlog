@@ -1,4 +1,5 @@
 using Devlog.Core.Abstractions;
+using Devlog.Infrastructure.Ai;
 using Devlog.Infrastructure.Git;
 using Devlog.Infrastructure.Migrations;
 using Devlog.Infrastructure.Persistence;
@@ -33,6 +34,8 @@ public static class DependencyInjection
         // Derived stores — rebuilt wholesale on every derivation
         services.AddSingleton<ActivityStore>();
         services.AddSingleton<SessionStore>();
+        services.AddSingleton<NarrativeStore>();
+        services.AddSingleton<INarrativeStore>(sp => sp.GetRequiredService<NarrativeStore>());
 
         // The read half. Separate from the writers above because it is the one
         // thing both the terminal and the API consume — one query, two
@@ -51,6 +54,9 @@ public static class DependencyInjection
         // match the process, not a scope.
         services.AddSingleton<IActivityWatcher, WinEventForegroundWatcher>();
         services.AddSingleton<SessionSwitchMonitor>();
+
+        // AI client. Plain HttpClient against OpenAI-compatible endpoint.
+        services.AddSingleton<IChatClient, ChatClassifier>();
 
         return services;
     }

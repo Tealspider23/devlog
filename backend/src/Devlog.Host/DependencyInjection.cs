@@ -1,6 +1,7 @@
 using Devlog.Api;
 using Devlog.Core.Abstractions;
 using Devlog.Core.Configuration;
+using Devlog.Host.Ai;
 using Devlog.Host.Derivation;
 using Devlog.Host.Diagnostics;
 using Devlog.Host.HostedServices;
@@ -74,9 +75,14 @@ public static class DependencyInjection
             .GetSection(GitOptions.SectionName)
             .Get<GitOptions>() ?? new GitOptions();
 
+        var ai = builder.Configuration
+            .GetSection(AiOptions.SectionName)
+            .Get<AiOptions>() ?? new AiOptions();
+
         builder.Services.AddSingleton(options);
         builder.Services.AddSingleton(derivation);
         builder.Services.AddSingleton(git);
+        builder.Services.AddSingleton(ai);
 
         return options;
     }
@@ -121,6 +127,13 @@ public static class DependencyInjection
         // not a second object, just a second door into it.
         services.AddSingleton<IDerivationRunner>(sp => sp.GetRequiredService<DerivationRunner>());
         services.AddSingleton<IGitScanRunner>(sp => sp.GetRequiredService<GitScanRunner>());
+
+        // AI Runners
+        services.AddSingleton<ClassifyAiRunner>();
+        services.AddSingleton<LlmFixturesRunner>();
+        services.AddSingleton<LlmEvalRunner>();
+        services.AddSingleton<NarrateRunner>();
+        services.AddSingleton<DigestProseRunner>();
 
         services.AddHostedService<CollectorService>();
 

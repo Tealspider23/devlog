@@ -9,6 +9,11 @@ public class CommandCatalogTests
     [InlineData("derive")]
     [InlineData("purge-seed")]
     [InlineData("SESSIONS")]
+    [InlineData("llm")]
+    [InlineData("classify-ai")]
+    [InlineData("narrate")]
+    [InlineData("llm-fixtures")]
+    [InlineData("llm-eval")]
     public void KnownCommands_AreRecognised_CaseInsensitively(string name) =>
         Assert.True(CommandCatalog.IsKnown(name));
 

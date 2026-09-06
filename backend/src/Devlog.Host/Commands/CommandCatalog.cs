@@ -26,6 +26,7 @@ public static class CommandCatalog
     public const string Build = "BUILD";
     public const string Classify = "CLASSIFY";
     public const string Report = "REPORT";
+    public const string Ai = "AI";
     public const string Manage = "MANAGE";
 
     public static readonly CommandInfo[] All =
@@ -41,14 +42,20 @@ public static class CommandCatalog
         new("unknowns", "unknowns [n]",                 "Identities still awaiting a verdict, most time first",     Classify),
         new("classify", "classify <identity> <cat>",    "Answer one by hand; --keyword scopes it to a page",        Classify),
 
-        new("digest",   "digest [--from D] [--to D] [--week|--month] [--out FILE]", "Deterministic brag-document Markdown for a date range", Report),
+        new("digest",   "digest [--from D] [--to D] [--week|--month] [--prose] [--out FILE]", "Deterministic brag-document Markdown for a date range", Report),
+
+        new("llm",          "llm",                          "AI provider, model, reachability and job status",          Ai),
+        new("classify-ai",  "classify-ai [--dry-run] [--limit N]", "Drain pending identities using AI",                Ai),
+        new("narrate",      "narrate [--since 7d] [--limit N] [--dry-run] [--force]", "Narrate sessions lacking a summary using AI", Ai),
+        new("llm-fixtures", "llm-fixtures [--out <dir>]",   "Export candidate identities and sessions for hand-labelling", Ai),
+        new("llm-eval",     "llm-eval [--dir <dir>]",       "Measure AI model accuracy against labelled fixtures",      Ai),
 
         new("config",     "config",                     "Resolved paths, exclusions and configured repos",          Manage),
         new("startup",    "startup [--enable|--disable]","Launch the collector at logon",                           Manage),
         new("purge-seed", "purge-seed --yes",           "Delete synthetic fixture rows from the raw log",           Manage)
     ];
 
-    public static readonly string[] Groups = [Inspect, Build, Classify, Report, Manage];
+    public static readonly string[] Groups = [Inspect, Build, Classify, Report, Ai, Manage];
 
     public static bool IsKnown(string name) =>
         All.Any(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));

@@ -1,6 +1,9 @@
+using System.Text.Json;
 using Devlog.Core.Abstractions;
+using Devlog.Core.Configuration;
 using Devlog.Core.Domain;
 using Devlog.Core.Metrics;
+using Devlog.Host.Ai;
 using Devlog.Host.Derivation;
 using Devlog.Host.Diagnostics;
 using Devlog.Host.Startup;
@@ -59,6 +62,31 @@ public static class DiagnosticCommands
         if (cli.Has("--digest"))
         {
             return Digest(host, cli);
+        }
+
+        if (cli.Has("--llm"))
+        {
+            return Llm(host);
+        }
+
+        if (cli.Has("--classify-ai"))
+        {
+            return ClassifyAi(host, cli);
+        }
+
+        if (cli.Has("--narrate"))
+        {
+            return Narrate(host, cli);
+        }
+
+        if (cli.Has("--llm-fixtures"))
+        {
+            return LlmFixtures(host, cli);
+        }
+
+        if (cli.Has("--llm-eval"))
+        {
+            return LlmEval(host, cli);
         }
 
         if (cli.Has("--config"))
@@ -328,7 +356,29 @@ public static class DiagnosticCommands
         }
 
         var reader = host.Services.GetRequiredService<ISessionReader>();
-        var (_, markdown) = DigestBuilder.BuildAsync(reader, from, to).GetAwaiter().GetResult();
+        var (metrics, markdown) = DigestBuilder.BuildAsync(reader, from, to).GetAwaiter().GetResult();
+
+        if (cli.Has("--prose"))
+        {
+            var proseRunner = host.Services.GetRequiredService<DigestProseRunner>();
+            var fromUtc = new DateTimeOffset(from.ToDateTime(TimeOnly.MinValue)).ToUnixTimeMilliseconds();
+            var toUtc = new DateTimeOffset(to.AddDays(1).ToDateTime(TimeOnly.MinValue)).ToUnixTimeMilliseconds();
+
+            var (proseMarkdown, note) = proseRunner.GenerateProseAsync(metrics, fromUtc, toUtc).GetAwaiter().GetResult();
+            if (proseMarkdown is not null)
+            {
+                var lines = markdown.Split('\n');
+                var headerLine = lines.FirstOrDefault(l => l.StartsWith("# devlog", StringComparison.OrdinalIgnoreCase))
+                    ?? $"# devlog — {metrics.From:MMM d} to {metrics.To:MMM d, yyyy}";
+                var restOfMarkdown = string.Join('\n', lines.Skip(1));
+
+                markdown = $"{headerLine}\n\n{proseMarkdown.TrimEnd()}\n\n{restOfMarkdown.TrimStart()}";
+            }
+            else if (note is not null)
+            {
+                markdown += $"\n\n*Note: Prose summary was skipped ({note})*\n";
+            }
+        }
 
         var outPath = cli.Value("--out");
 
@@ -507,6 +557,154 @@ public static class DiagnosticCommands
         }
 
         return 0;
+    }
+
+    /// <summary>
+    /// AI provider diagnostics: model, endpoint reachability, and job switches.
+    /// Follows the config command's privacy convention: reports whether an API key
+    /// exists, never its value.
+    /// </summary>
+    private static int Llm(IHost host)
+    {
+        CommandLine.TrySetUtf8Console();
+
+        var ai = host.Services.GetRequiredService<AiOptions>();
+
+        Console.WriteLine("\n=== AI (LLM) ===");
+        Console.WriteLine($"  enabled          : {(ai.Enabled ? "true" : "FALSE (all AI jobs disabled)")}");
+        Console.WriteLine($"  configured model : {ai.Model}");
+        Console.WriteLine($"  api key          : {(string.IsNullOrWhiteSpace(ai.ApiKey) ? "(none)" : "present")}");
+        Console.WriteLine($"  connect timeout  : {ai.ConnectTimeoutSeconds}s");
+        Console.WriteLine($"  request timeout  : {ai.RequestTimeoutSeconds}s");
+        Console.WriteLine($"  min confidence   : {ai.MinConfidence:F2}");
+        Console.WriteLine($"  batch size       : {ai.ClassifyBatchSize}");
+        Console.WriteLine($"  jobs             : classify:{(ai.Jobs.Classify ? "on" : "off")}  narrate:{(ai.Jobs.Narrate ? "on" : "off")}  digest:{(ai.Jobs.Digest ? "on" : "off")}  ask:{(ai.Jobs.Ask ? "on" : "off")}");
+
+        if (!ai.Enabled)
+        {
+            Console.WriteLine("\n  AI features are disabled in config (Ai:Enabled = false).\n");
+            return 0;
+        }
+
+        var (resolvedEndpoint, reachable, reportedModel, error) = ProbeProvider(ai);
+
+        Console.WriteLine($"  endpoint         : {resolvedEndpoint ?? "(probing failed - no provider found)"}");
+        Console.WriteLine($"  status           : {(reachable ? $"REACHABLE (reported model: {reportedModel})" : $"UNREACHABLE ({error})")}");
+
+        if (!reachable)
+        {
+            Console.WriteLine("""
+
+                  No reachable OpenAI-compatible provider found.
+                  devlog is fully functional without AI: capture, derivation, git
+                  correlation, timeline and deterministic digests continue normally.
+                  To enable AI features, start Ollama (http://127.0.0.1:11434) or LM Studio (http://127.0.0.1:1234),
+                  or configure an explicit endpoint in appsettings.local.json.
+                """);
+        }
+        else
+        {
+            Console.WriteLine("\n  Provider is ready for AI jobs (classify-ai, narrate, digest --prose, ask).\n");
+        }
+
+        return 0;
+    }
+
+    private static int ClassifyAi(IHost host, CommandLine cli)
+    {
+        CommandLine.TrySetUtf8Console();
+
+        var limit = int.TryParse(cli.Value("--limit"), out var l) && l > 0 ? l : (int?)null;
+        var dryRun = cli.Has("--dry-run");
+
+        var runner = host.Services.GetRequiredService<ClassifyAiRunner>();
+        return runner.RunAsync(dryRun, limit).GetAwaiter().GetResult();
+    }
+
+    private static int Narrate(IHost host, CommandLine cli)
+    {
+        CommandLine.TrySetUtf8Console();
+
+        var since = cli.Value("--since");
+        var limit = int.TryParse(cli.Value("--limit"), out var l) && l > 0 ? l : (int?)null;
+        var dryRun = cli.Has("--dry-run");
+        var force = cli.Has("--force");
+
+        var runner = host.Services.GetRequiredService<NarrateRunner>();
+        return runner.RunAsync(since, limit, dryRun, force).GetAwaiter().GetResult();
+    }
+
+    private static int LlmFixtures(IHost host, CommandLine cli)
+    {
+        CommandLine.TrySetUtf8Console();
+
+        var outDir = cli.Value("--out");
+        var runner = host.Services.GetRequiredService<LlmFixturesRunner>();
+        return runner.RunAsync(outDir).GetAwaiter().GetResult();
+    }
+
+    private static int LlmEval(IHost host, CommandLine cli)
+    {
+        CommandLine.TrySetUtf8Console();
+
+        var dir = cli.Value("--dir");
+        var runner = host.Services.GetRequiredService<LlmEvalRunner>();
+        return runner.RunAsync(dir).GetAwaiter().GetResult();
+    }
+
+    private static (string? Endpoint, bool Reachable, string? ReportedModel, string? Error) ProbeProvider(AiOptions ai)
+    {
+        var candidates = !string.IsNullOrWhiteSpace(ai.Endpoint)
+            ? [ai.Endpoint.TrimEnd('/')]
+            : new[] { "http://127.0.0.1:11434/v1", "http://127.0.0.1:1234/v1" };
+
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(Math.Max(1, ai.ConnectTimeoutSeconds)) };
+
+        string? lastError = null;
+        foreach (var endpoint in candidates)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{endpoint}/models");
+                if (!string.IsNullOrWhiteSpace(ai.ApiKey))
+                {
+                    req.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", ai.ApiKey);
+                }
+
+                using var resp = client.Send(req);
+                if (resp.IsSuccessStatusCode)
+                {
+                    var json = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                    string? matchedModel = null;
+                    using var doc = JsonDocument.Parse(json);
+                    if (doc.RootElement.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var m in data.EnumerateArray())
+                        {
+                            if (m.TryGetProperty("id", out var idProp) && idProp.GetString() is { } id)
+                            {
+                                if (string.Equals(id, ai.Model, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    matchedModel = id;
+                                    break;
+                                }
+                                matchedModel ??= id;
+                            }
+                        }
+                    }
+
+                    return (endpoint, true, matchedModel ?? ai.Model, null);
+                }
+
+                lastError = $"HTTP {(int)resp.StatusCode} {resp.ReasonPhrase}";
+            }
+            catch (Exception ex)
+            {
+                lastError = ex.InnerException?.Message ?? ex.Message;
+            }
+        }
+
+        return (ai.Endpoint, false, null, lastError ?? "connection refused");
     }
 
     private static string Humanise(int seconds) => seconds switch
