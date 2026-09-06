@@ -47,6 +47,7 @@ public static class CommandCatalog
         new("llm",          "llm",                          "AI provider, model, reachability and job status",          Ai),
         new("classify-ai",  "classify-ai [--dry-run] [--limit N]", "Drain pending identities using AI",                Ai),
         new("narrate",      "narrate [--since 7d] [--limit N] [--dry-run] [--force]", "Narrate sessions lacking a summary using AI", Ai),
+        new("ask",          "ask \"<question>\" [--quiet]", "Ask questions about activity, sessions and metrics using AI", Ai),
         new("llm-fixtures", "llm-fixtures [--out <dir>]",   "Export candidate identities and sessions for hand-labelling", Ai),
         new("llm-eval",     "llm-eval [--dir <dir>]",       "Measure AI model accuracy against labelled fixtures",      Ai),
 

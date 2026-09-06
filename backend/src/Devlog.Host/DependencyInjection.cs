@@ -134,6 +134,7 @@ public static class DependencyInjection
         services.AddSingleton<LlmEvalRunner>();
         services.AddSingleton<NarrateRunner>();
         services.AddSingleton<DigestProseRunner>();
+        services.AddSingleton<AskRunner>();
 
         services.AddHostedService<CollectorService>();
 

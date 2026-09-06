@@ -89,6 +89,11 @@ public static class DiagnosticCommands
             return LlmEval(host, cli);
         }
 
+        if (cli.Has("--ask"))
+        {
+            return Ask(host, cli);
+        }
+
         if (cli.Has("--config"))
         {
             return Config(host);
@@ -708,6 +713,30 @@ public static class DiagnosticCommands
         }
 
         return (ai.Endpoint, false, null, lastError ?? "connection refused");
+    }
+
+    private static int Ask(IHost host, CommandLine cli)
+    {
+        CommandLine.TrySetUtf8Console();
+        var question = cli.Value("--ask");
+        if (string.IsNullOrWhiteSpace(question))
+        {
+            Console.Error.WriteLine("Error: Missing question. Usage: devlog ask \"<question>\"");
+            return 1;
+        }
+
+        var quiet = cli.Has("--quiet");
+        var runner = host.Services.GetRequiredService<AskRunner>();
+        var result = runner.AskAsync(question, quiet).GetAwaiter().GetResult();
+
+        if (!result.Success)
+        {
+            Console.Error.WriteLine($"Error: {result.Error}");
+            return 1;
+        }
+
+        Console.WriteLine(result.Answer);
+        return 0;
     }
 
     private static string Humanise(int seconds) => seconds switch
