@@ -1,5 +1,6 @@
 using Dapper;
 using Devlog.Core.Abstractions;
+using Devlog.Core.Derivation;
 using Devlog.Core.Domain;
 
 namespace Devlog.Infrastructure.Persistence;
@@ -94,6 +95,20 @@ public sealed class ClassificationRuleStore(ISqliteConnectionFactory factory) : 
     /// site is flagged, and future verdicts for it are made per page. YouTube
     /// promotes itself the first time you disagree with your earlier self.
     /// </para>
+    /// <para>
+    /// A <c>manual</c> verdict may never be replaced by anything but another
+    /// <c>manual</c> one, in either scope. This has to be checked before the
+    /// promotion block runs, not only guarded on the final upsert: an earlier
+    /// version guarded only the upsert, so an <c>llm</c> verdict disagreeing
+    /// with a <c>manual</c> one left the stored category untouched but still
+    /// ran the promotion path — setting <see cref="ClassificationRule.IsMixed"/>
+    /// and demoting the manual answer to a page rule keyed on a keyword no real
+    /// title will ever contain. <see cref="Classifier.Classify"/> skips a mixed
+    /// site's own site-level rule, so the manual verdict silently stopped being
+    /// applied even though the row itself still said the right thing. Guarding
+    /// the read here — before any write — is what makes the whole call a no-op
+    /// against a manual verdict, rather than a quieter form of overwriting it.
+    /// </para>
     /// </summary>
     public async Task<bool> ClassifyAsync(
         string site,
@@ -106,18 +121,32 @@ public sealed class ClassificationRuleStore(ISqliteConnectionFactory factory) : 
         await using var connection = await factory.OpenAsync(ct).ConfigureAwait(false);
         await using var tx = await connection.BeginTransactionAsync(ct).ConfigureAwait(false);
 
+        var isSiteScope = string.IsNullOrWhiteSpace(keyword);
+
+        var existing = await connection.QuerySingleOrDefaultAsync<ExistingVerdict>(new CommandDefinition(
+            isSiteScope
+                ? "SELECT category, source FROM classification_rule WHERE scope='Site' AND site=@site AND keyword IS NULL;"
+                : "SELECT category, source FROM classification_rule WHERE scope='Page' AND site=@site AND keyword=@keyword;",
+            new { site, keyword },
+            transaction: tx,
+            cancellationToken: ct)).ConfigureAwait(false);
+
+        var blockedByManual = existing is not null
+            && string.Equals(existing.source, ClassificationSource.Manual, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(source, ClassificationSource.Manual, StringComparison.OrdinalIgnoreCase);
+
+        if (blockedByManual)
+        {
+            await tx.CommitAsync(ct).ConfigureAwait(false);
+            return false;
+        }
+
         var promoted = false;
 
-        if (string.IsNullOrWhiteSpace(keyword))
+        if (isSiteScope)
         {
-            var existing = await connection.QuerySingleOrDefaultAsync<string?>(new CommandDefinition(
-                "SELECT category FROM classification_rule WHERE scope='Site' AND site=@site AND keyword IS NULL;",
-                new { site },
-                transaction: tx,
-                cancellationToken: ct)).ConfigureAwait(false);
-
-            var conflicts = !string.IsNullOrEmpty(existing)
-                && !string.Equals(existing, category.ToString(), StringComparison.OrdinalIgnoreCase);
+            var conflicts = !string.IsNullOrEmpty(existing?.category)
+                && !string.Equals(existing.category, category.ToString(), StringComparison.OrdinalIgnoreCase);
 
             if (conflicts)
             {
@@ -131,7 +160,7 @@ public sealed class ClassificationRuleStore(ISqliteConnectionFactory factory) : 
                     ON CONFLICT (scope, site, keyword) WHERE keyword IS NOT NULL
                     DO UPDATE SET category = excluded.category;
                     """,
-                    new { site, keyword = $"__previous__{existing}", category = existing, source, now = nowUtc },
+                    new { site, keyword = $"__previous__{existing!.category}", category = existing.category, source, now = nowUtc },
                     transaction: tx,
                     cancellationToken: ct)).ConfigureAwait(false);
 
@@ -145,17 +174,22 @@ public sealed class ClassificationRuleStore(ISqliteConnectionFactory factory) : 
             }
         }
 
-        var scope = string.IsNullOrWhiteSpace(keyword) ? "Site" : "Page";
+        var scope = isSiteScope ? "Site" : "Page";
 
+        // The WHERE clause on each upsert states the same invariant already
+        // enforced above, at the storage layer rather than only in this method
+        // - worth having on a source-of-truth table a future caller might reach
+        // by a path that does not go through the read-before-write check above.
         await connection.ExecuteAsync(new CommandDefinition(
-            string.IsNullOrWhiteSpace(keyword)
+            isSiteScope
                 ? """
                   INSERT INTO classification_rule
                     (scope, site, keyword, category, source, is_mixed, created_utc)
                   VALUES ('Site', @site, NULL, @category, @source, 0, @now)
                   ON CONFLICT (scope, site) WHERE keyword IS NULL DO UPDATE SET
                     category = excluded.category,
-                    source   = excluded.source;
+                    source   = excluded.source
+                  WHERE classification_rule.source <> 'manual' OR excluded.source = 'manual';
                   """
                 : """
                   INSERT INTO classification_rule
@@ -163,7 +197,8 @@ public sealed class ClassificationRuleStore(ISqliteConnectionFactory factory) : 
                   VALUES ('Page', @site, @keyword, @category, @source, 0, @now)
                   ON CONFLICT (scope, site, keyword) WHERE keyword IS NOT NULL DO UPDATE SET
                     category = excluded.category,
-                    source   = excluded.source;
+                    source   = excluded.source
+                  WHERE classification_rule.source <> 'manual' OR excluded.source = 'manual';
                   """,
             new { site, keyword, category = category.ToString(), source, now = nowUtc, scope },
             transaction: tx,
@@ -171,6 +206,13 @@ public sealed class ClassificationRuleStore(ISqliteConnectionFactory factory) : 
 
         await tx.CommitAsync(ct).ConfigureAwait(false);
         return promoted;
+    }
+
+    /// <summary>What already answers this exact site or page, and who gave that answer.</summary>
+    private sealed class ExistingVerdict
+    {
+        public string? category { get; set; }
+        public string? source { get; set; }
     }
 
     private sealed class RuleRow
