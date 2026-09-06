@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Separate from Devlog.Core.Tests on purpose.
+
+    Devlog.Core references nothing and targets plain net10.0, which is what
+    keeps derivation testable without a database or a desktop. Adding a
+    Devlog.Host reference to that test project would drag WinForms, Serilog and
+    a Windows-only TFM into it and quietly give up that property. The command
+    layer is a host concern, so it is tested from a host-shaped project.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="coverlet.collector" Version="6.0.4" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Devlog.Host\Devlog.Host.csproj" />
+  </ItemGroup>
+
+</Project>

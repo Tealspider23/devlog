@@ -59,7 +59,7 @@ public sealed class NoiseFilter
     /// cannot hold them.
     /// <para>
     /// Browser permission prompts are the motivating case: Chrome renames its
-    /// own window to <c>launch.paltechapps.com wants to</c> while a dialog is
+    /// own window to <c>launch.example.com wants to</c> while a dialog is
     /// up, which reads as a distinct site and earns its own pending identity.
     /// It is not a site — it is a modal on top of one.
     /// </para>

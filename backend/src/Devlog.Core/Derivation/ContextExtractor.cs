@@ -284,7 +284,7 @@ public static partial class ContextExtractor
     {
         var identity = SiteIdentity.For("chrome", title);
 
-        // A tab whose identity IS a configured project — `palpool-ui - Google
+        // A tab whose identity IS a configured project — `orderbook-ui - Google
         // Chrome`, the running dev server — names real work on that repo, and
         // dropping it understated every project with browser time against it.
         //

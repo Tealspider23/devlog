@@ -7,8 +7,8 @@ namespace Devlog.Core.Derivation;
 /// configured repos as the source of truth rather than pattern-matching the path.
 /// <para>
 /// This exists because <see cref="ContextExtractor"/>'s path fallback regex gets
-/// the wrong answer for a real layout: <c>repos/palpool/palpool-api</c> yields
-/// <c>palpool</c>, because the repo sits one level deeper than the pattern
+/// the wrong answer for a real layout: <c>repos/orderbook/orderbook-api</c> yields
+/// <c>orderbook</c>, because the repo sits one level deeper than the pattern
 /// assumes. A resolver seeded from configured repo roots does not need to guess.
 /// </para>
 /// <para>
@@ -65,7 +65,7 @@ public sealed class ProjectResolver
     /// <para>
     /// For contexts that carry no path and so cannot be resolved by
     /// <see cref="Resolve"/> — most importantly a browser tab, where
-    /// <c>palpool-ui - Google Chrome</c> is the running dev server for a repo
+    /// <c>orderbook-ui - Google Chrome</c> is the running dev server for a repo
     /// that is genuinely configured. Ignoring those understated every project
     /// with real browser time against it.
     /// </para>
@@ -84,7 +84,7 @@ public sealed class ProjectResolver
     /// <summary>
     /// Forward slashes and a trailing separator, so <c>C:\repos\x</c> and
     /// <c>C:\repos\x\</c> compare equal and <c>StartsWith</c> cannot match a
-    /// sibling with a shared prefix (<c>palpool</c> vs <c>palpool-ui</c>).
+    /// sibling with a shared prefix (<c>orderbook</c> vs <c>orderbook-ui</c>).
     /// </summary>
     private static string Normalize(string path)
     {

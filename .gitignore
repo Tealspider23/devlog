@@ -11,12 +11,10 @@ api-token.txt
 appsettings.local.json
 appsettings.*.local.json
 
-# ---- held back from the public repo for now ----
-# These exist locally and still run; they are simply not published yet, because
-# they carry real window titles, machine names and colleague names captured
-# during development. To publish: sanitise those strings, drop these two lines,
-# and re-add the test project to Devlog.slnx.
-backend/tests/
+# ---- held back from the public repo ----
+# The seeder generates synthetic capture for local development and is not
+# referenced from anywhere outside this folder - Devlog.Host builds without it.
+# Kept private on general principle rather than for any specific leak.
 backend/src/Devlog.Host/Seed/
 
 # ---- .NET ----

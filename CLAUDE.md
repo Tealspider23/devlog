@@ -19,7 +19,7 @@ stop entirely. This has been the standing agreement since Phase 1 and it still
 holds.
 
 **The plan is a living document, not a spec written once.** It lives at
-`C:\Users\amit.behera\.claude\plans\ok-make-a-plan-synthetic-spindle.md`. When a
+`C:\Users\<you>\.claude\plans\ok-make-a-plan-synthetic-spindle.md`. When a
 phase surfaces something that invalidates a downstream assumption — and it
 often does — say so, revise the plan file, and re-confirm before continuing.
 Don't quietly build to a plan you already know is stale.
@@ -88,8 +88,15 @@ is needed for one, extend the shared reader, don't build a second query path.
 
 ## Privacy and what gets committed
 
-- `backend/tests/` and any seeder/fixture code are **gitignored and never
-  pushed** unless explicitly told otherwise. Don't `git add -f` them.
+- `backend/tests/` **is committed** — `Devlog.slnx` references those projects,
+  so a clone cannot build without them. Every fixture string in there is
+  synthetic and chosen to preserve the property its test guards; a real project
+  name, server, domain or colleague never goes in, even in a comment.
+- `backend/src/Devlog.Host/Seed/` stays gitignored — nothing outside that folder
+  references `EventSeeder`, so the Host builds without it. Don't `git add -f` it.
+- `docs/llm-evals/*.json` is gitignored: those are real captured sessions,
+  hand-labelled. Only `docs/llm-evals/README.md`, whose examples are fabricated,
+  is committed.
 - Real local repo paths, API keys, and any machine-specific config belong in
   `appsettings.local.json` (gitignored) — never in the public `appsettings.json`.
 - `api-token.txt` is gitignored. Never echo it to console output, logs, or a
@@ -104,7 +111,7 @@ is needed for one, extend the shared reader, don't build a second query path.
   `[excluded]` placeholder) which stay conservative by default.
 - Git identity for this repo is local to it: `Tealspider23` /
   `123721031+Tealspider23@users.noreply.github.com`. Never touch the global
-  work identity (`amit.behera@pal.tech`).
+  work identity (the machine's own `user.email`, configured outside this repo).
 
 ---
 
@@ -120,7 +127,7 @@ existing sections (`Devlog`, `Derivation`, `Git`, `Api`) as the template.
 ## Verification bar before calling a step done
 
 - `dotnet build backend\Devlog.slnx` clean, `dotnet test` green — currently
-  204 tests (170 Core + 34 Host). Check the actual number; it grows.
+  254 tests (212 Core + 42 Host). Check the actual number; it grows.
 - For anything touching output the CLI already prints: capture the baseline
   first, diff after. A refactor that changes formatting wasn't "just a
   refactor" — say so.

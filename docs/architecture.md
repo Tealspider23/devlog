@@ -40,8 +40,8 @@ Normalization extracts the stable part:
 | Raw title | Stable context | Volatile |
 |---|---|---|
 | `auth.cs - devlog - Visual Studio Code` | project `devlog` | file `auth.cs` |
-| `amit@DESKTOP: ~/source/repos/devlog` | cwd `devlog` | — |
-| `Slack \| general \| PalTech` | channel `general` | — |
+| `dev@DESKTOP: ~/source/repos/devlog` | cwd `devlog` | — |
+| `Slack \| general \| Acme Corp` | channel `general` | — |
 
 ## Engagement is not binary
 
