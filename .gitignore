@@ -17,6 +17,13 @@ appsettings.*.local.json
 # Kept private on general principle rather than for any specific leak.
 backend/src/Devlog.Host/Seed/
 
+# Real captured sessions, hand-labelled for Job A/B eval accuracy (docs/LLM.md
+# section 9). Window titles are genuinely sensitive - server names, colleague
+# names, ticket contents - and these files are the real thing, not test
+# fixtures. The format they follow is documented in docs/llm-evals/README.md,
+# which IS committed, with entirely fabricated examples.
+docs/llm-evals/*.json
+
 # ---- .NET ----
 bin/
 obj/
