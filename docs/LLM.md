@@ -57,7 +57,7 @@ backend/src/
   Devlog.Api/             net10.0          HTTP contracts + endpoints. References Core ONLY.
   Devlog.Host/            net10.0-windows  the tray exe. References Core, Infrastructure, Api.
   Devlog.Cli/             net10.0-windows  the `devlog` command. References Host.
-backend/tests/            GITIGNORED - never commit anything here
+backend/tests/            committed, sanitised - real fixtures still never belong here
 ```
 
 These are load-bearing, not stylistic:
@@ -451,8 +451,9 @@ anyone can name a browser tab — so a model with a SQL socket into the activity
 log is a prompt-injection target sitting on the most sensitive file on the
 machine.
 
-**An `llm` verdict may never overwrite a `manual` one.** See section 4.4: this is
-currently **not enforced** and you are fixing it.
+**An `llm` verdict may never overwrite a `manual` one.** See section 4.4 —
+already fixed and covered by a regression test; verify it still holds rather
+than re-deriving it.
 
 **`Unknown` and `unclear` are correct answers, not failures.** An unsure verdict
 leaves the thing pending, which is honest and self-correcting. A confident wrong
@@ -465,9 +466,13 @@ two lines of config and zero lines of code.
 **Nothing Windows-specific or SQLite-specific in `Devlog.Core`**, and no
 `PackageReference` in its `.csproj`.
 
-**Do not commit anything under `backend/tests/`.** It is gitignored deliberately
-— the fixtures contain real window titles with colleague names, server names and
-ticket contents. Write tests there; do not `git add -f` them.
+**`backend/tests/` is committed and public — every fixture in it is sanitised.**
+Real captured data never belongs there. If a test needs a realistic window
+title, invent one the same way the existing fixtures do (`ContextExtractorTests`
+is the pattern): fabricated server names, fabricated colleague names,
+`orderbook-api`/`orderbook-ui` rather than a real project name. **Real eval
+data goes in `docs/llm-evals/`, which is gitignored for exactly that reason —
+see section 9.**
 
 **Style:** no emojis. Comments explain *why*, only when non-obvious — a hidden
 constraint, a past bug, a subtle invariant — never *what*, which the identifiers
@@ -795,25 +800,32 @@ await ruleStore.ClassifyAsync(
     ct);
 ```
 
-#### The defect you must fix before Job A writes anything
+#### Precedence — already fixed, verify it before building on top of it
 
-Precedence is documented as `manual > llm > builtin > pending`, **enforced at
-write time**. It is not enforced. In
-`backend/src/Devlog.Infrastructure/Persistence/ClassificationRuleStore.cs`, both
-branches of the upsert in `ClassifyAsync` end with an unconditional:
+Precedence is `manual > llm > builtin > pending`, **enforced at write time**, in
+`backend/src/Devlog.Infrastructure/Persistence/ClassificationRuleStore.cs`. This
+was a real, verified defect and has already been fixed with a red/green
+regression test — you are not fixing it, you are relying on it.
 
-```sql
-ON CONFLICT (scope, site) WHERE keyword IS NULL DO UPDATE SET
-  category = excluded.category,
-  source   = excluded.source;
-```
+**The original bug was subtler than an unguarded upsert, and worth understanding
+because the same shape can reappear.** `ClassifyAsync` does two things: it may
+*promote* a site to mixed-use (when a new answer disagrees with the existing
+site-level one — see the doc comment on the method), and it always performs an
+upsert. An earlier version guarded only the upsert. So an `llm` verdict
+disagreeing with a `manual` one left the stored `category` untouched — but the
+promotion block still ran, setting `IsMixed = 1` and demoting the manual answer
+to a page rule keyed on a keyword no real title will ever contain.
+`Classifier.Classify` skips a mixed site's own site-level rule
+(`!siteRule.IsMixed`), so **the manual verdict silently stopped being applied**,
+even though a test that only checked the stored `category` column would have
+kept passing.
 
-An `llm` verdict therefore overwrites a `manual` one. `Classifier.Classify` does
-not consider `SourceName` at all when resolving, so write time is genuinely the
-only place this can be enforced.
-
-Add a `WHERE` clause to the upsert in **both** branches (site-scope and
-page-scope):
+The fix reads the existing verdict's `source` — for both site-scope and
+page-scope, since a page-scope `llm` rule could overwrite a page-scope `manual`
+one by the identical route — **before** the promotion block runs, and returns
+immediately, writing nothing at all, when the stored verdict is `manual` and the
+incoming one is not. The upsert additionally carries the SQL-level invariant as
+defence in depth:
 
 ```sql
 ON CONFLICT (scope, site) WHERE keyword IS NULL DO UPDATE SET
@@ -822,12 +834,15 @@ ON CONFLICT (scope, site) WHERE keyword IS NULL DO UPDATE SET
 WHERE classification_rule.source <> 'manual' OR excluded.source = 'manual';
 ```
 
-A model may never overwrite a human; a human may always change their own mind.
+A model may never overwrite a human; a human may always change their own mind
+— mixed-use promotion is for the latter case only.
 
-**Test it explicitly:** classify an identity `manual`, then classify it `llm`
-with a different category, then assert the stored category and source are still
-the manual ones. This is listed in section 10's checklist because it is the one
-regression that would be invisible in normal use.
+`backend/tests/Devlog.Host.Tests/ClassificationRuleStoreTests.cs` covers this
+against a real SQLite file: the stored row, `IsMixed`, and — the check that
+actually matters, since it is the one a row-only assertion misses —
+`Classifier.Classify` still resolving to the manual category afterwards. Run
+these before touching this file further; if you change `ClassifyAsync`, extend
+this test file rather than starting a new one.
 
 ### 4.5 Command
 
@@ -934,20 +949,20 @@ differ at a session boundary, and the linker's answer is the correct one.
   "sessionId": 412,
   "start": "2026-09-02T11:03:00+05:30",
   "durationSeconds": 1583,
-  "project": "palpool-api",
+  "project": "orderbook-api",
   "category": "Coding",
   "deepSeconds": 1350,
   "interruptions": 5,
   "activities": [
     { "atSeconds": 0, "durationSeconds": 240, "process": "ms-teams",
       "category": "Communication", "project": null, "identity": "Microsoft Teams",
-      "title": "Rahul | palpool-api | Microsoft Teams" },
+      "title": "Priya | orderbook-api | Microsoft Teams" },
     { "atSeconds": 240, "durationSeconds": 420, "process": "chrome",
       "category": "Coding", "project": null, "identity": "GitLab",
       "title": "Fix login redirect (!59) - Merge request" },
     { "atSeconds": 660, "durationSeconds": 900, "process": "Code",
-      "category": "Coding", "project": "palpool-api", "identity": "Code",
-      "title": "AuthController.cs - palpool-api - Visual Studio Code" }
+      "category": "Coding", "project": "orderbook-api", "identity": "Code",
+      "title": "AuthController.cs - orderbook-api - Visual Studio Code" }
   ],
   "commits": [
     { "sha": "a1b2c3d", "message": "fix: login redirect loop",
@@ -959,7 +974,7 @@ differ at a session boundary, and the linker's answer is the correct one.
 `atSeconds` is relative to session start — the model does not need absolute
 timestamps and they only add tokens. **`project` per activity is
 `Activity.Project`, which is null for a browser tab or an unrecognised app.** It
-is the difference between "worked on palpool-api" and "looked at something".
+is the difference between "worked on orderbook-api" and "looked at something".
 
 ### 5.4 The system prompt — verbatim
 
@@ -1125,15 +1140,15 @@ Pass the figures pre-formatted, as strings, so there is nothing to arithmetic:
     "commits": "30",
     "linesAdded": "16240",
     "linesRemoved": "398",
-    "longestBlock": "2h05m on palpool-api",
+    "longestBlock": "2h05m on orderbook-api",
     "bestDay": "Monday, Aug 31",
-    "projects": ["devlog: 14.8h", "palpool-api: 5h", "palpool-ui: 4.1h"],
+    "projects": ["devlog: 14.8h", "orderbook-api: 5h", "orderbook-ui: 4.1h"],
     "languages": ["C#", "TypeScript", "SQL"],
     "firstTimeLanguages": ["SQL", "PowerShell"],
     "tickets": ["US-1569"]
   },
   "narratives": [
-    { "kind": "mr-review", "workstream": "US-1569", "project": "palpool-api",
+    { "kind": "mr-review", "workstream": "US-1569", "project": "orderbook-api",
       "narrative": "Picked up merge request !59 after a Teams conversation..." }
   ]
 }
@@ -1190,7 +1205,7 @@ not be noticed until someone else notices.
 **Question: whatever you feel like asking.**
 
 ```
-devlog ask "how much time on palpool-api this month?"
+devlog ask "how much time on orderbook-api this month?"
 devlog ask "what was I doing last Tuesday afternoon?"
 ```
 
@@ -1290,14 +1305,17 @@ docs/llm-evals/
 
 // sessions.json
 [ { "sessionId": 149, "expectedKind": "mr-review", "expectedWorkstream": "US-1569",
-    "note": "2h17m reading palpool-api with a clean tree and zero commits" } ]
+    "note": "2h17m reading orderbook-api with a clean tree and zero commits" } ]
 ```
 
 `devlog llm-fixtures --out docs/llm-evals` exports **candidates** — real sessions
 and identities with the `expected` fields blank — so labelling is filling in a
 file rather than assembling one. It must apply the same `[seed]` and
-`[excluded]` filters, and it writes to a directory the user chooses because
-these files contain real window titles.
+`[excluded]` filters, and defaults to `docs/llm-evals` because
+`docs/llm-evals/*.json` is already gitignored there for exactly this reason —
+these files contain real window titles and must never be committed. A
+`docs/llm-evals/README.md` documenting this format with fabricated examples
+**is** committed; keep the two in sync if either changes.
 
 `devlog llm-eval` reports per-job accuracy. Run it before and after any model,
 prompt or temperature change. **Without it, tuning is superstition.**
@@ -1316,23 +1334,25 @@ the failure this entire design is arranged to catch.
    you can answer "is a model reachable".
 2. **`ChatClassifier`**, connection-refused path first, against a stubbed
    `HttpMessageHandler`.
-3. **The precedence fix** (section 4.4) with its regression test. Before Job A
-   can write anything.
-4. **Job A.** Smallest, and proves the pipeline end to end against a queue that
-   already exists.
-5. **Eval harness + fixtures.** Before Job B, so B is built against a measurement.
-6. **Job B.** Migration `005`, the narrative store, the evidence check. The real
+3. **Job A.** Smallest, and proves the pipeline end to end against a queue that
+   already exists. The precedence guarantee it writes through (section 4.4) is
+   already fixed and tested — run `ClassificationRuleStoreTests` once before you
+   start, so you know what "still holds" looks like.
+4. **Eval harness + fixtures.** Before Job B, so B is built against a measurement.
+5. **Job B.** Migration `005`, the narrative store, the evidence check. The real
    work.
-7. **Job C.** Depends on B.
-8. **Job G.** Depends on nothing new; do it last.
+6. **Job C.** Depends on B.
+7. **Job G.** Depends on nothing new; do it last.
 
 ### The standing bar
 
 From `CLAUDE.md`, and it applies here:
 
 - `dotnet build backend\Devlog.slnx` clean.
-- `dotnet test` green. **246 tests today** (212 Core + 34 Host) — check the real
-  number, it grows.
+- `dotnet test` green. **254 tests today** (212 Core + 42 Host) — check the real
+  number, it grows. `backend/tests/` is a normal, committed part of the
+  repository now — sanitised and published so a clone can build and test at
+  all. Write your tests there like any other change.
 - For anything touching output the CLI already prints, capture the baseline first
   and diff after.
 - **Verify live, not by reasoning.** Hit the real endpoint; do not conclude a
@@ -1345,9 +1365,9 @@ From `CLAUDE.md`, and it applies here:
       **exits 0**.
 - [ ] `devlog classify-ai` with the endpoint stopped prints "unreachable, N still
       pending" and **exits 0**.
-- [ ] **Precedence:** classify an identity `manual`, then `llm` with a different
-      category; the manual answer and source survive. This is the regression that
-      would otherwise be invisible.
+- [ ] **Precedence still holds:** `dotnet test --filter ClassificationRuleStoreTests`
+      is green before you touch `ClassifyAsync` for any reason, and still green
+      after. If you extend it, extend that file — don't start a parallel one.
 - [ ] An `Unknown` verdict writes nothing, and the identity still appears in
       `devlog unknowns`.
 - [ ] A verdict below `MinConfidence` writes nothing.
@@ -1364,7 +1384,10 @@ From `CLAUDE.md`, and it applies here:
 - [ ] `devlog digest` without `--prose` is **byte-identical** to before this work.
 - [ ] `Devlog.Core.csproj` still has zero `PackageReference` entries.
 - [ ] `Devlog.Api` still references only `Devlog.Core`.
-- [ ] Nothing under `backend/tests/` is staged for commit.
+- [ ] Any real eval fixtures you produce (`identities.json`, `sessions.json`)
+      are never staged — `git check-ignore -v docs/llm-evals/identities.json`
+      confirms the rule is doing its job. `docs/llm-evals/README.md` is the
+      only file in that directory meant to be committed.
 - [ ] No real endpoint, hostname or key is in `appsettings.json`.
 
 ---
@@ -1448,7 +1471,7 @@ than by accident.
 The `win` table (`id`, `ts_utc`, `note`) has existed since migration `001` and
 **nothing has ever read or written it.** It stays that way until Job B ships,
 for a structural reason rather than a scheduling one: a win — *"shipped the
-EventStore"*, *"reviewed Rahul's auth changes"* — **is a Job B narrative**. Both
+EventStore"*, *"reviewed Priya's auth changes"* — **is a Job B narrative**. Both
 describe one session, from the same evidence, in one sentence.
 
 Build manual capture first and you build the thing the model exists to replace,
