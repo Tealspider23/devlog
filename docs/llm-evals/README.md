@@ -28,20 +28,22 @@ sees.
 [
   {
     "identity": "Example Docs",
-    "process": "chrome",
     "sampleTitles": [
       "Getting started - Example Docs",
       "API reference - Example Docs"
     ],
     "expected": "Learning",
-    "note": "optional: why this is the right answer, or why it's a hard case"
+    "note": "optional: why this is the right answer, or why it's a hard case",
+    "totalSeconds": 340,
+    "hits": 9
   },
   {
     "identity": "Example Search",
-    "process": "chrome",
     "sampleTitles": ["cats - Example Search", "flight prices - Example Search"],
     "expected": "Unknown",
-    "note": "genuinely mixed-use - a single category would be wrong half the time"
+    "note": "genuinely mixed-use - a single category would be wrong half the time",
+    "totalSeconds": 118,
+    "hits": 4
   }
 ]
 ```
@@ -49,6 +51,17 @@ sees.
 `expected` must be one of the nine values `ActivityCategory` plus `Unknown`
 uses — see `docs/LLM.md` section 4.3. Roughly 30 identities, weighted toward
 the ones that were actually hard to call.
+
+`totalSeconds` and `hits` are exported from the real rule and matter: the
+production prompt sends both to the model alongside the sample titles, so an
+eval run without them measures accuracy for a weaker prompt than the one that
+ships. `devlog llm-fixtures` always writes them; if you write a fixture by hand,
+include them or accuracy will not reflect production behaviour.
+
+`process` does not appear here — `devlog llm-fixtures` always exports it as
+absent, since `ClassificationRule` does not currently record which process an
+identity came from. Do not add it by hand; the classifier prompt never receives
+it either, so a fixture carrying one would not match what is actually sent.
 
 ## `sessions.json`
 
@@ -59,12 +72,16 @@ would conclude.
 ```json
 [
   {
+    "startUtc": 1725255180000,
     "sessionId": 1234,
     "expectedKind": "mr-review",
     "expectedWorkstream": "PROJ-42",
-    "note": "reviewed a merge request in the browser, then made a small fix and committed it"
+    "note": "reviewed a merge request in the browser, then made a small fix and committed it",
+    "project": "orderbook-api",
+    "durationSeconds": 8220
   },
   {
+    "startUtc": 1725261000000,
     "sessionId": 1240,
     "expectedKind": "context-thrash",
     "expectedWorkstream": null,
@@ -77,6 +94,14 @@ would conclude.
 Roughly 20 sessions. Include a few `context-thrash` / `unclear` cases
 deliberately — a model that always finds a coherent story is the failure this
 eval exists to catch.
+
+**`startUtc` is the real key, not `sessionId`.** Session ids are reassigned on
+every `devlog derive`, so `devlog llm-eval` looks a session up by its durable
+`session_start_utc` first, and only falls back to `sessionId` if no session
+starts at that exact millisecond. `devlog llm-fixtures` always writes
+`startUtc`; keep it if you hand-edit this file; `sessionId` is a convenience for
+finding the session in `devlog sessions`, nothing more. `project` and
+`durationSeconds` are likewise exported for context and are optional.
 
 ## Running the eval
 

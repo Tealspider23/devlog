@@ -597,13 +597,29 @@ public sealed class AiJobSwitches
    (LM Studio), with `ConnectTimeoutSeconds`.
 3. **Disabled — and it says so.**
 
-**Hosted Cloud Providers (e.g. Google Gemini):**
-For machines without local GPUs (like an office laptop), configure Google Gemini's OpenAI-compatible endpoint in `appsettings.local.json`:
+### 3.4 The hosted provider — what this project actually runs on
+
+Local inference on the Omen was the original plan and was abandoned: `gpt-oss:20b`
+hit bugs there that were not worth fighting for the value they returned. Every job
+now runs against the Google Gemini API. Steps 1–3 above still describe the code,
+and the local branches still work, but they are no longer the path in use.
+
+That this took a config block and no code at all is the payoff of the *no vendor
+SDK* rule in section 2 — a plain `HttpClient` against `/v1/chat/completions` made a
+provider swap a settings change instead of a rewrite.
+
+⚠ **It also moves every window title, commit message and branch name off this
+machine.** Read *What leaves the machine* in the appendix before running Job B or
+Job G over real capture; it lists exactly what each job transmits and what the
+remaining controls are. `devlog llm` names the destination host on every run.
+
+Configure it in `appsettings.local.json`, which is gitignored — never in
+`appsettings.json`, which is public:
 ```json
 "Ai": {
   "Enabled": true,
   "Endpoint": "https://generativelanguage.googleapis.com/v1beta/openai",
-  "Model": "gemini-3.7-flash",
+  "Model": "gemini-3.6-flash",
   "ApiKey": "<your-google-ai-studio-key>",
   "ConnectTimeoutSeconds": 5,
   "RequestTimeoutSeconds": 30
@@ -1313,12 +1329,18 @@ docs/llm-evals/
 ```
 
 ```json
-// identities.json
+// identities.json - totalSeconds/hits matter: the production prompt sends
+// both alongside the sample titles, so an eval without them measures a
+// weaker prompt than the one that ships.
 [ { "identity": "Google Search", "sampleTitles": ["..."], "expected": "Unknown",
-    "note": "genuinely mixed-use; a single category would be wrong half the time" } ]
+    "note": "genuinely mixed-use; a single category would be wrong half the time",
+    "totalSeconds": 340, "hits": 9 } ]
 
-// sessions.json
-[ { "sessionId": 149, "expectedKind": "mr-review", "expectedWorkstream": "US-1569",
+// sessions.json - keyed on startUtc, not sessionId: session ids are
+// reassigned on every derive, startUtc is durable. sessionId is kept only as
+// a convenience for finding the session in `devlog sessions`.
+[ { "startUtc": 1725255180000, "sessionId": 149, "expectedKind": "mr-review",
+    "expectedWorkstream": "US-1569",
     "note": "2h17m reading orderbook-api with a clean tree and zero commits" } ]
 ```
 
@@ -1476,9 +1498,34 @@ colleague names, database server names and ticket contents.
 | C - Digest | narratives and pre-computed figures — no raw titles |
 | G - Ask | whatever the answering query touches |
 
-With a self-hosted endpoint this stays on your own hardware. The table exists so
-that a future decision to point at a hosted provider is made deliberately rather
-than by accident.
+**This now goes to a third party.** The table was written when a self-hosted
+endpoint kept all of it on your own hardware, and said it existed so that a
+decision to point at a hosted provider would be made deliberately rather than by
+accident. That decision has since been made: local inference on the Omen hit
+bugs that were not worth fighting, and every job now runs against the Google
+Gemini API (section 3.4). So read the table as a list of what is transmitted, not
+as a list of what is computed nearby.
+
+Consequences worth holding in view, none of which are arguments against the
+choice:
+
+- **Every row above is real employer data.** Branch names carry ticket IDs,
+  commit messages carry intent, and session titles carry database server and
+  colleague names. Whether that may leave the machine is a question about your
+  employer's policy, not only your own preference.
+- **Which key you use decides whether prompts train a model.** Google AI Studio's
+  free and paid tiers differ here. Check the tier the key belongs to.
+- **There is no longer a configuration where the AI features run without
+  transmitting anything.** Before, "no provider" was the honest default and
+  everything still worked. That is still true of devlog *without* AI — capture,
+  derivation, git correlation, the timeline and the deterministic digest are
+  untouched — but the four jobs now imply the network.
+- **`Ai:Jobs` is the remaining dial.** Job A sends an identity and three titles;
+  Job B sends a whole session. Turning `Narrate` off while leaving `Classify` on
+  is a coherent middle position and costs nothing to try.
+
+`devlog llm` names the destination host on every run, so this is answerable from
+the terminal rather than from memory.
 
 ### Wins
 

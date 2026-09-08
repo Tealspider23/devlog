@@ -48,7 +48,9 @@ public sealed class LlmFixturesRunner(
                 Process: null,
                 SampleTitles: titles,
                 Expected: "",
-                Note: ""
+                Note: "",
+                TotalSeconds: r.TotalSeconds,
+                Hits: r.Hits
             ));
         }
 

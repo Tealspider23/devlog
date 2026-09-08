@@ -92,11 +92,14 @@ public sealed class LlmEvalRunner(
         for (int i = 0; i < labelled.Count; i += batchSize)
         {
             var chunk = labelled.Skip(i).Take(batchSize).ToList();
+            // Real counters from the fixture, not hardcoded zero - a batch size
+            // and confidence check evaluated against an input the production
+            // prompt never sends would be measuring the wrong prompt.
             var inputs = chunk.Select(f => new IdentityInput(
                 Identity: f.Identity,
                 Process: f.Process,
-                TotalSeconds: 0,
-                Hits: 0,
+                TotalSeconds: f.TotalSeconds,
+                Hits: f.Hits,
                 SampleTitles: f.SampleTitles ?? []
             )).ToList();
 
@@ -140,10 +143,12 @@ public sealed class LlmEvalRunner(
             }
         }
 
-        var report = JobAEvalReport.Evaluate(labelled, allVerdicts, allDiscards);
+        var report = JobAEvalReport.Evaluate(labelled, allVerdicts, allDiscards, totalSupplied: fixtures.Count);
 
+        var unlabelled = report.TotalSupplied - labelled.Count;
         Console.WriteLine($"""
             === JOB A EVAL RESULTS ===
+              Total Supplied : {report.TotalSupplied}{(unlabelled > 0 ? $"  ({unlabelled} skipped - no Expected value)" : "")}
               Total Labelled : {report.TotalLabelled}
               Correct        : {report.Correct}
               Mismatches     : {report.Mismatches}
@@ -266,12 +271,13 @@ public sealed class LlmEvalRunner(
         }
 
         var kindAcc = evaluated > 0 ? (double)correctKind / evaluated * 100 : 0.0;
+        var wsAcc = evaluated > 0 ? (double)correctWs / evaluated * 100 : 0.0;
         Console.WriteLine($"""
 
             === JOB B EVAL RESULTS ===
               Total Evaluated : {evaluated} (Skipped: {skipped})
               Kind Accuracy   : {correctKind}/{evaluated} ({kindAcc:F1}%)
-              Workstream Match: {correctWs}/{evaluated}
+              Workstream Match: {correctWs}/{evaluated} ({wsAcc:F1}%)
             """);
         Console.WriteLine();
     }

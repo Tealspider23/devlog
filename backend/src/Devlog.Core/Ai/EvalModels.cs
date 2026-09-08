@@ -3,12 +3,19 @@ namespace Devlog.Core.Ai;
 /// <summary>
 /// A candidate or labelled identity fixture for Job A accuracy evaluation.
 /// </summary>
+/// <param name="TotalSeconds">
+/// Real counters from the source rule at export time. <see cref="IdentityClassifierPrompt.BuildUserContent"/>
+/// puts both in the payload the model actually sees; an eval built with these at
+/// zero measures accuracy for a weaker prompt than production sends.
+/// </param>
 public sealed record IdentityEvalFixture(
     string Identity,
     string? Process,
     List<string> SampleTitles,
     string? Expected,
-    string? Note
+    string? Note,
+    int TotalSeconds = 0,
+    int Hits = 0
 );
 
 /// <summary>
@@ -40,7 +47,16 @@ public sealed record IdentityEvalItemResult(
 /// <summary>
 /// Aggregated report of Job A eval accuracy.
 /// </summary>
+/// <param name="TotalSupplied">
+/// The fixture count actually passed in, independent of how many carried a
+/// non-blank Expected. TotalLabelled was previously the only count reported,
+/// and it is derived (Correct + Mismatches) rather than the input size - a
+/// fixture with a blank Expected is silently skipped with nothing to show how
+/// many were skipped. A run against 30 fixtures where only 10 were hand-labelled
+/// looked identical to a deliberate 10-fixture run.
+/// </param>
 public sealed record JobAEvalReport(
+    int TotalSupplied,
     int TotalLabelled,
     int Correct,
     int Mismatches,
@@ -49,10 +65,17 @@ public sealed record JobAEvalReport(
     List<IdentityEvalItemResult> Items
 )
 {
+    /// <param name="fixtures">Only the labelled subset - the caller filters blank-Expected entries before this call.</param>
+    /// <param name="totalSupplied">
+    /// The raw fixture count in the file, before that filter. Defaults to
+    /// <paramref name="fixtures"/>.Count for callers with nothing else to pass,
+    /// which reproduces the old (misleading) behaviour rather than breaking them.
+    /// </param>
     public static JobAEvalReport Evaluate(
         IReadOnlyList<IdentityEvalFixture> fixtures,
         IReadOnlyList<ValidatedVerdict> verdicts,
-        IReadOnlyList<string> discards)
+        IReadOnlyList<string> discards,
+        int? totalSupplied = null)
     {
         var verdictMap = new Dictionary<string, ValidatedVerdict>(StringComparer.OrdinalIgnoreCase);
         foreach (var v in verdicts)
@@ -134,6 +157,7 @@ public sealed record JobAEvalReport(
         double accuracy = totalLabelled > 0 ? (double)correct / totalLabelled : 0.0;
 
         return new JobAEvalReport(
+            TotalSupplied: totalSupplied ?? fixtures.Count,
             TotalLabelled: totalLabelled,
             Correct: correct,
             Mismatches: mismatches,
