@@ -32,4 +32,14 @@ public interface IClassificationRuleStore
     /// longest first. Used to give the AI classifier real context without scanning full history.
     /// </summary>
     Task<List<string>> GetSampleTitlesAsync(string site, int limit = 3, CancellationToken ct = default);
+
+    /// <summary>
+    /// Deletes one stored rule, of any source, returning it to pending. There was
+    /// previously no way to undo a verdict at all — Job A can write a rule for an
+    /// identity <c>SiteIdentity</c> should never have produced (a page title with
+    /// no site behind it), and once written it is permanent: answered rows are
+    /// never touched by <c>RecordSightingsAsync</c>'s pending-rebuild. This is the
+    /// correction path. Returns true if a row existed and was removed.
+    /// </summary>
+    Task<bool> DeleteAsync(string site, string? keyword, CancellationToken ct = default);
 }

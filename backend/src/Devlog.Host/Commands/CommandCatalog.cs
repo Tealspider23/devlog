@@ -41,6 +41,7 @@ public static class CommandCatalog
 
         new("unknowns", "unknowns [n]",                 "Identities still awaiting a verdict, most time first",     Classify),
         new("classify", "classify <identity> <cat>",    "Answer one by hand; --keyword scopes it to a page",        Classify),
+        new("unclassify", "unclassify <identity> [--keyword K]", "Delete a stored verdict, of any source; the identity returns to pending", Classify),
 
         new("digest",   "digest [--from D] [--to D] [--week|--month] [--prose] [--out FILE]", "Deterministic brag-document Markdown for a date range", Report),
 

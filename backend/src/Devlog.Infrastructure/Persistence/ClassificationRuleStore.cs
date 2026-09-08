@@ -226,6 +226,22 @@ public sealed class ClassificationRuleStore(ISqliteConnectionFactory factory) : 
         return [.. rows.Where(t => !string.IsNullOrWhiteSpace(t))];
     }
 
+    public async Task<bool> DeleteAsync(string site, string? keyword, CancellationToken ct = default)
+    {
+        await using var connection = await factory.OpenAsync(ct).ConfigureAwait(false);
+
+        var sql = string.IsNullOrWhiteSpace(keyword)
+            ? "DELETE FROM classification_rule WHERE scope='Site' AND site=@site AND keyword IS NULL;"
+            : "DELETE FROM classification_rule WHERE scope='Page' AND site=@site AND keyword=@keyword;";
+
+        var affected = await connection.ExecuteAsync(new CommandDefinition(
+            sql,
+            new { site, keyword },
+            cancellationToken: ct)).ConfigureAwait(false);
+
+        return affected > 0;
+    }
+
     /// <summary>What already answers this exact site or page, and who gave that answer.</summary>
     private sealed class ExistingVerdict
     {

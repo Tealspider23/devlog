@@ -69,7 +69,9 @@ public static class SessionNarratorPrompt
           produce two pieces of real evidence, answer kind "unclear" with low confidence.
         - "context-thrash" and "unclear" are correct answers. A scattered session is a
           real and useful finding. Do not invent a coherent story for an incoherent
-          session - the user would rather know.
+          session - the user would rather know. A low-confidence "unclear" costs
+          nothing: the session is simply asked about again later. A confident but
+          invented "feature-work" is stored and treated as fact.
         - Do not calculate or restate durations, totals or percentages. Numbers are
           computed elsewhere and yours would conflict with them.
         - Do not mention the person's name or judge them.
@@ -193,7 +195,19 @@ public static class SessionNarratorPrompt
             : null;
 
         var confidence = root.TryGetProperty("confidence", out var confProp) ? confProp.GetDouble() : 0.0;
-        if (confidence < minConfidence)
+
+        // The prompt tells the model to answer "unclear" WITH LOW CONFIDENCE when
+        // it cannot support two evidence items - then this gate rejected exactly
+        // that answer, which meant "unclear" and "context-thrash" could never
+        // reach the database: the honest low-confidence case and the confident
+        // case were both being asked for, but only the confident one could
+        // survive. The session was silently re-asked from scratch on every later
+        // run. Evidence and evidence-count still apply below - low confidence is
+        // not a bypass for fabrication, only for the confidence floor itself.
+        var isSelfReportedUncertain = string.Equals(kind, "unclear", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(kind, "context-thrash", StringComparison.OrdinalIgnoreCase);
+
+        if (confidence < minConfidence && !isSelfReportedUncertain)
         {
             return SessionNarrativeResult.Rejected($"Confidence {confidence:F2} is below threshold {minConfidence:F2}");
         }

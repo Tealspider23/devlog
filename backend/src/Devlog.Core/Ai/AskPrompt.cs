@@ -145,12 +145,19 @@ public static class AskPrompt
                         allowed.Add((val / 3600.0).ToString("0.#"));
                     }
                 }
+
+                // A ratio field (e.g. FocusRatio: 0.71) is legitimately restated as a
+                // percentage. Scale only fractions actually present in the tool
+                // output, rather than a blanket exemption for every small integer -
+                // that blanket previously let a day-of-month or a session count pass
+                // for an hour figure it never verified.
+                if (double.TryParse(m.Value, out var ratio) && ratio is > 0 and <= 1)
+                {
+                    allowed.Add(Math.Round(ratio * 100).ToString("0"));
+                    allowed.Add((ratio * 100).ToString("0.#"));
+                }
             }
         }
-
-        // Always allow standard calendar numbers (1-31, 0, 100%)
-        for (int i = 0; i <= 31; i++) allowed.Add(i.ToString());
-        allowed.Add("100");
 
         unverifiedNumbers = [];
         foreach (Match m in NumberRegex.Matches(response))

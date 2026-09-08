@@ -226,11 +226,14 @@ public class SessionNarratorTests
         var activities = CreateActivities();
         var commits = CreateCommits();
 
+        // A normal, non-exempt kind - the confidence floor still applies here.
+        // See ValidateAndParse_AcceptsUnclear_EvenAtLowConfidence for the
+        // exemption this used to block entirely.
         var responseJson = """
         {
           "sessionId": 412,
           "narrative": "Uncertain work.",
-          "kind": "unclear",
+          "kind": "feature-work",
           "workstream": null,
           "evidence": ["AuthController.cs", "GitLab"],
           "confidence": 0.40
@@ -242,6 +245,96 @@ public class SessionNarratorTests
 
         Assert.False(result.IsAccepted);
         Assert.Contains("below threshold", result.RejectionReason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The regression this session's audit exists to fix. The prompt tells the
+    /// model to answer "unclear" WITH LOW CONFIDENCE when it cannot support two
+    /// pieces of evidence - the MinConfidence gate then rejected exactly that
+    /// answer, so "unclear" could never reach the database and every session
+    /// defaulted to whichever kind survives the gate, which in practice was
+    /// always the first enum value, "feature-work".
+    /// </summary>
+    [Fact]
+    public void ValidateAndParse_AcceptsUnclear_EvenAtLowConfidence()
+    {
+        var summary = CreateSummary();
+        var activities = CreateActivities();
+        var commits = CreateCommits();
+
+        var responseJson = """
+        {
+          "sessionId": 412,
+          "narrative": "Scattered activity with no single thread.",
+          "kind": "unclear",
+          "workstream": null,
+          "evidence": ["AuthController.cs", "GitLab"],
+          "confidence": 0.40
+        }
+        """;
+
+        var result = SessionNarratorPrompt.ValidateAndParse(
+            responseJson, summary, activities, commits, 0.60, "gpt-oss:20b", 1725257000000);
+
+        Assert.True(result.IsAccepted);
+        Assert.NotNull(result.Narrative);
+        Assert.Equal("unclear", result.Narrative.Kind);
+        Assert.Equal(0.40, result.Narrative.Confidence);
+    }
+
+    [Fact]
+    public void ValidateAndParse_AcceptsContextThrash_EvenAtLowConfidence()
+    {
+        var summary = CreateSummary();
+        var activities = CreateActivities();
+        var commits = CreateCommits();
+
+        var responseJson = """
+        {
+          "sessionId": 412,
+          "narrative": "Jumped between unrelated tabs with no coherent thread.",
+          "kind": "context-thrash",
+          "workstream": null,
+          "evidence": ["AuthController.cs", "GitLab"],
+          "confidence": 0.30
+        }
+        """;
+
+        var result = SessionNarratorPrompt.ValidateAndParse(
+            responseJson, summary, activities, commits, 0.60, "gpt-oss:20b", 1725257000000);
+
+        Assert.True(result.IsAccepted);
+        Assert.Equal("context-thrash", result.Narrative!.Kind);
+    }
+
+    /// <summary>
+    /// The exemption is for the confidence floor only, not a bypass for
+    /// fabrication - an "unclear" verdict with invented evidence must still be
+    /// rejected by the hallucination check.
+    /// </summary>
+    [Fact]
+    public void ValidateAndParse_StillRejectsUnclear_WhenEvidenceIsFabricated()
+    {
+        var summary = CreateSummary();
+        var activities = CreateActivities();
+        var commits = CreateCommits();
+
+        var responseJson = """
+        {
+          "sessionId": 412,
+          "narrative": "Something vague happened.",
+          "kind": "unclear",
+          "workstream": null,
+          "evidence": ["Nonexistent Thing One", "Completely Invented Reference"],
+          "confidence": 0.30
+        }
+        """;
+
+        var result = SessionNarratorPrompt.ValidateAndParse(
+            responseJson, summary, activities, commits, 0.60, "gpt-oss:20b", 1725257000000);
+
+        Assert.False(result.IsAccepted);
+        Assert.Contains("Hallucination", result.RejectionReason, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -70,4 +70,39 @@ public class AskPromptTests
         Assert.Contains("999", unverified);
         Assert.Contains("88", unverified);
     }
+
+    /// <summary>
+    /// The old check unconditionally allowed every integer 0-31 plus 100, meant
+    /// for calendar dates and round percentages - but it meant any figure in
+    /// that range could be cited as an hour count with no basis in the retrieved
+    /// data at all. "19" appears nowhere in the tool output below; the old
+    /// exemption would still have let it through.
+    /// </summary>
+    [Fact]
+    public void VerifyNumbers_NoLongerLetsAnySmallNumber_ThroughUnconditionally()
+    {
+        var toolOutputs = new[] { """{"DeepHours": 4.5}""" };
+
+        var response = "You worked 19 hours this week.";
+        var valid = AskPrompt.VerifyNumbers(response, toolOutputs, out var unverified);
+
+        Assert.False(valid);
+        Assert.Contains("19", unverified);
+    }
+
+    /// <summary>
+    /// A ratio field legitimately restated as a percentage - the narrow
+    /// replacement for the old blanket 0-31/100 exemption.
+    /// </summary>
+    [Fact]
+    public void VerifyNumbers_AllowsAPercentage_DerivedFromARatioInToolOutput()
+    {
+        var toolOutputs = new[] { """{"FocusRatio": 0.71}""" };
+
+        var response = "Your focus ratio was 71% this week.";
+        var valid = AskPrompt.VerifyNumbers(response, toolOutputs, out var unverified);
+
+        Assert.True(valid);
+        Assert.Empty(unverified);
+    }
 }

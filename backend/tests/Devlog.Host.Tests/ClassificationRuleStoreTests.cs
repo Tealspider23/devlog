@@ -188,4 +188,65 @@ public sealed class ClassificationRuleStoreTests : IDisposable
         Assert.Equal(ActivityCategory.Distraction, rule.Category);
         Assert.Equal(ClassificationSource.Llm, rule.SourceName);
     }
+
+    // ------------------------------------------------ correcting a stored verdict
+
+    /// <summary>
+    /// There was previously no way to undo a stored verdict at all - a Job A
+    /// answer for an identity SiteIdentity should never have produced (e.g. a
+    /// single page title with no site behind it) was permanent. DeleteAsync is
+    /// the correction path, and it must work regardless of who wrote the row.
+    /// </summary>
+    [Fact]
+    public async Task DeleteAsync_RemovesAnLlmVerdict_AndReturnsTrue()
+    {
+        await _store.ClassifyAsync("August", ActivityCategory.Other, null,
+            ClassificationSource.Llm, nowUtc: 1000);
+
+        var deleted = await _store.DeleteAsync("August", keyword: null);
+
+        Assert.True(deleted);
+        Assert.DoesNotContain(await _store.GetAllAsync(), r => r.Site == "August");
+    }
+
+    [Fact]
+    public async Task DeleteAsync_OnAnUnknownIdentity_ReturnsFalse()
+    {
+        var deleted = await _store.DeleteAsync("Never Seen", keyword: null);
+
+        Assert.False(deleted);
+    }
+
+    /// <summary>The deleted identity is indistinguishable from one never answered - it is eligible again immediately.</summary>
+    [Fact]
+    public async Task DeleteAsync_ThenReClassify_WritesANewVerdict()
+    {
+        await _store.ClassifyAsync("Tailscale: How it works", ActivityCategory.Learning, null,
+            ClassificationSource.Llm, nowUtc: 1000);
+
+        await _store.DeleteAsync("Tailscale: How it works", keyword: null);
+
+        await _store.ClassifyAsync("Tailscale: How it works", ActivityCategory.Other, null,
+            ClassificationSource.Manual, nowUtc: 2000);
+
+        var rule = await RuleFor("Tailscale: How it works");
+        Assert.Equal(ActivityCategory.Other, rule.Category);
+        Assert.Equal(ClassificationSource.Manual, rule.SourceName);
+    }
+
+    [Fact]
+    public async Task DeleteAsync_OnlyRemovesTheMatchingScope_NotTheWholeSite()
+    {
+        await _store.ClassifyAsync("YouTube", ActivityCategory.Learning, null,
+            ClassificationSource.Manual, nowUtc: 1000);
+        await _store.ClassifyAsync("YouTube", ActivityCategory.Distraction, "tutorial",
+            ClassificationSource.Manual, nowUtc: 2000);
+
+        var deleted = await _store.DeleteAsync("YouTube", keyword: "tutorial");
+
+        Assert.True(deleted);
+        var rules = await _store.GetAllAsync();
+        Assert.Contains(rules, r => r.Site == "YouTube" && r.Keyword is null);
+        Assert.DoesNotContain(rules, r => r.Site == "YouTube" && r.Keyword == "tutorial");
+    }
 }
