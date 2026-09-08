@@ -13,7 +13,7 @@ namespace Devlog.Host.Ai;
 public sealed class DigestProseRunner(
     INarrativeStore narrativeStore,
     IChatClient chatClient,
-    AiOptions options)
+    AiOptions options) : IDigestProseRunner
 {
     public async Task<(string? ProseMarkdown, string? Note)> GenerateProseAsync(
         DigestMetrics metrics,

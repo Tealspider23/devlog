@@ -136,6 +136,13 @@ public static class DependencyInjection
         services.AddSingleton<DigestProseRunner>();
         services.AddSingleton<AskRunner>();
 
+        // Same "second door" pattern as IDerivationRunner/IGitScanRunner above,
+        // so Devlog.Api's AI endpoints can reach these without a Devlog.Host
+        // reference.
+        services.AddSingleton<INarrateRunner>(sp => sp.GetRequiredService<NarrateRunner>());
+        services.AddSingleton<IDigestProseRunner>(sp => sp.GetRequiredService<DigestProseRunner>());
+        services.AddSingleton<IAskRunner>(sp => sp.GetRequiredService<AskRunner>());
+
         services.AddHostedService<CollectorService>();
 
         return services;

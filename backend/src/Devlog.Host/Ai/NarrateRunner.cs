@@ -15,9 +15,9 @@ public sealed class NarrateRunner(
     ISessionReader sessionReader,
     INarrativeStore narrativeStore,
     IChatClient chatClient,
-    AiOptions options)
+    AiOptions options) : INarrateRunner
 {
-    public async Task<int> RunAsync(
+    public async Task<NarrateResult> RunAsync(
         string? sinceArg,
         int? limitOverride,
         bool dryRun,
@@ -54,8 +54,7 @@ public sealed class NarrateRunner(
 
         if (toProcess.Count == 0)
         {
-            Console.WriteLine("\nNo sessions needing narration in the selected window.\n");
-            return 0;
+            return new NarrateResult(dryRun, AcceptedCount: 0, RejectedCount: 0, Outcomes: []);
         }
 
         var limit = limitOverride ?? 20;
@@ -64,9 +63,7 @@ public sealed class NarrateRunner(
             .Take(limit)
             .ToList();
 
-        var mode = dryRun ? "PROPOSED NARRATIVES (--dry-run, no database writes)" : "SESSION NARRATIVES";
-        Console.WriteLine($"\n=== {mode} ({batch.Count} sessions) ===\n");
-
+        var outcomes = new List<NarrateOutcome>();
         int accepted = 0;
         int rejected = 0;
 
@@ -86,8 +83,8 @@ public sealed class NarrateRunner(
 
             if (!chatResult.Reachable || string.IsNullOrWhiteSpace(chatResult.Content))
             {
-                Console.WriteLine($"  [unreachable] Session {s.Session.Id}: {chatResult.Error ?? "no response"}");
                 rejected++;
+                outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, false, null, chatResult.Error ?? "no response"));
                 continue;
             }
 
@@ -105,15 +102,15 @@ public sealed class NarrateRunner(
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"  [parse-error] Session {s.Session.Id}: {ex.Message}");
                 rejected++;
+                outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, false, null, ex.Message));
                 continue;
             }
 
             if (!parseResult.IsAccepted || parseResult.Narrative is null)
             {
-                Console.WriteLine($"  [rejected] Session {s.Session.Id}: {parseResult.RejectionReason}");
                 rejected++;
+                outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, false, null, parseResult.RejectionReason));
                 continue;
             }
 
@@ -124,17 +121,10 @@ public sealed class NarrateRunner(
             }
 
             accepted++;
-            var durationStr = Humanise(s.Session.DurationSeconds);
-            var projectStr = string.IsNullOrWhiteSpace(s.Session.Project) ? "" : $" ({s.Session.Project})";
-            var wsStr = string.IsNullOrWhiteSpace(n.Workstream) ? "" : $" [{n.Workstream}]";
-            Console.WriteLine($"  Session {s.Session.Id}{projectStr} {durationStr} -> [{n.Kind}]{wsStr} (confidence: {n.Confidence:F2})");
-            Console.WriteLine($"    \"{n.Narrative}\"");
-            Console.WriteLine($"    Evidence: {string.Join(" | ", n.Evidence)}");
-            Console.WriteLine();
+            outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, true, n, null));
         }
 
-        Console.WriteLine($"\n  Finished: {accepted} accepted, {rejected} rejected/skipped.\n");
-        return 0;
+        return new NarrateResult(dryRun, accepted, rejected, outcomes);
     }
 
     private static long ParseSince(string? since, DateTimeOffset now)
@@ -161,12 +151,4 @@ public sealed class NarrateRunner(
 
         return now.AddDays(-7).ToUnixTimeMilliseconds();
     }
-
-    private static string Humanise(int seconds) => seconds switch
-    {
-        <= 0 => "—",
-        < 60 => $"{seconds}s",
-        < 3600 => $"{seconds / 60}m{seconds % 60:00}s",
-        _ => $"{seconds / 3600}h{seconds % 3600 / 60:00}m"
-    };
 }

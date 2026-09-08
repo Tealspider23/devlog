@@ -53,11 +53,28 @@ public static partial class MetricsCalculator
             .Select(s => new LongestBlock(s.Session.StartUtc, s.Session.EndUtc, s.Session.Project, s.Session.DeepSeconds))
             .FirstOrDefault();
 
-        var bestDay = sessions
+        var sessionsByDay = sessions
             .GroupBy(s => DateOnly.FromDateTime(s.Session.Start.ToLocalTime().DateTime))
+            .ToList();
+
+        var bestDay = sessionsByDay
             .Select(g => new BestDay(g.Key, g.Sum(s => s.Session.DeepSeconds)))
             .OrderByDescending(d => d.DeepSeconds)
             .FirstOrDefault();
+
+        var commitsByDay = commits
+            .Where(c => !c.IsMerge)
+            .GroupBy(c => DateOnly.FromDateTime(c.Timestamp.ToLocalTime().DateTime))
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        var dailyBreakdown = sessionsByDay
+            .Select(g => new DayStat(
+                g.Key,
+                g.Sum(s => s.Session.DeepSeconds),
+                g.Sum(s => s.Session.DurationSeconds),
+                commitsByDay.GetValueOrDefault(g.Key)))
+            .OrderBy(d => d.Date)
+            .ToList();
 
         var timeByProject = sessions
             .Where(s => s.Session.Project is not null)
@@ -108,6 +125,7 @@ public static partial class MetricsCalculator
             InterruptionsPerActiveDay = activeDays > 0 ? (double)interruptions / activeDays : 0,
             LongestBlock = longest,
             BestDay = bestDay,
+            DailyBreakdown = dailyBreakdown,
             TimeByProject = timeByProject,
             TimeByCategory = timeByCategory,
             UnattributedCodingSeconds = unattributedCoding,

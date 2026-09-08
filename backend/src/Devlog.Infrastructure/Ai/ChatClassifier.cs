@@ -81,7 +81,8 @@ public sealed class ChatClassifier : IChatClient, IDisposable
         string jsonSchemaName,
         string jsonSchema,
         string reasoningEffort,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? model = null)
     {
         if (!_options.Enabled)
         {
@@ -94,12 +95,14 @@ public sealed class ChatClassifier : IChatClient, IDisposable
             return new ChatResult(Reachable: false, Content: null, Model: null, Error: "No reachable OpenAI-compatible provider found.");
         }
 
+        var effectiveModel = string.IsNullOrWhiteSpace(model) ? _options.Model : model;
+
         try
         {
             using var schemaDoc = JsonDocument.Parse(jsonSchema);
             var payload = new Dictionary<string, object?>
             {
-                ["model"] = _options.Model,
+                ["model"] = effectiveModel,
                 ["temperature"] = 0,
                 ["messages"] = new object[]
                 {
@@ -118,9 +121,7 @@ public sealed class ChatClassifier : IChatClient, IDisposable
                 }
             };
 
-            // Only send reasoning_effort for OpenAI reasoning models (o1/o3) that support it.
-            // Local providers like Ollama / LM Studio hang or reject when reasoning_effort is passed.
-            if (!string.IsNullOrWhiteSpace(reasoningEffort) && (_options.Model.StartsWith("o1", StringComparison.OrdinalIgnoreCase) || _options.Model.StartsWith("o3", StringComparison.OrdinalIgnoreCase)))
+            if (!string.IsNullOrWhiteSpace(reasoningEffort) && SupportsReasoningEffort(effectiveModel))
             {
                 payload["reasoning_effort"] = reasoningEffort;
             }
@@ -174,7 +175,7 @@ public sealed class ChatClassifier : IChatClient, IDisposable
             using var doc = JsonDocument.Parse(respJson);
 
             var root = doc.RootElement;
-            var returnedModel = root.TryGetProperty("model", out var modelProp) ? modelProp.GetString() : _options.Model;
+            var returnedModel = root.TryGetProperty("model", out var modelProp) ? modelProp.GetString() : effectiveModel;
 
             if (root.TryGetProperty("choices", out var choices) &&
                 choices.ValueKind == JsonValueKind.Array &&
@@ -204,7 +205,8 @@ public sealed class ChatClassifier : IChatClient, IDisposable
         IReadOnlyList<ChatMessage> messages,
         IReadOnlyList<ToolDefinition>? tools,
         string reasoningEffort,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        string? model = null)
     {
         if (!_options.Enabled)
         {
@@ -216,6 +218,8 @@ public sealed class ChatClassifier : IChatClient, IDisposable
         {
             return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: "No reachable OpenAI-compatible provider found.");
         }
+
+        var effectiveModel = string.IsNullOrWhiteSpace(model) ? _options.Model : model;
 
         try
         {
@@ -239,15 +243,31 @@ public sealed class ChatClassifier : IChatClient, IDisposable
 
                 if (m.ToolCalls is { Count: > 0 })
                 {
-                    dict["tool_calls"] = m.ToolCalls.Select(tc => new Dictionary<string, object?>
+                    dict["tool_calls"] = m.ToolCalls.Select(tc =>
                     {
-                        ["id"] = tc.Id,
-                        ["type"] = "function",
-                        ["function"] = new Dictionary<string, object?>
+                        var call = new Dictionary<string, object?>
                         {
-                            ["name"] = tc.Function.Name,
-                            ["arguments"] = tc.Function.Arguments
+                            ["id"] = tc.Id,
+                            ["type"] = "function",
+                            ["function"] = new Dictionary<string, object?>
+                            {
+                                ["name"] = tc.Function.Name,
+                                ["arguments"] = tc.Function.Arguments
+                            }
+                        };
+
+                        // Only when the provider sent one - an explicit null is
+                        // not the same as absent, and is rejected by some. Parsed
+                        // back to an element rather than assigned as a string, or
+                        // it would go out as one escaped blob and be as good as
+                        // missing.
+                        if (tc.ExtraContent is not null)
+                        {
+                            using var extraDoc = JsonDocument.Parse(tc.ExtraContent);
+                            call["extra_content"] = extraDoc.RootElement.Clone();
                         }
+
+                        return call;
                     }).ToList();
                 }
 
@@ -256,7 +276,7 @@ public sealed class ChatClassifier : IChatClient, IDisposable
 
             var payload = new Dictionary<string, object?>
             {
-                ["model"] = _options.Model,
+                ["model"] = effectiveModel,
                 ["temperature"] = 0,
                 ["messages"] = formattedMessages
             };
@@ -281,7 +301,7 @@ public sealed class ChatClassifier : IChatClient, IDisposable
                 payload["tools"] = toolsList;
             }
 
-            if (!string.IsNullOrWhiteSpace(reasoningEffort) && (_options.Model.StartsWith("o1", StringComparison.OrdinalIgnoreCase) || _options.Model.StartsWith("o3", StringComparison.OrdinalIgnoreCase)))
+            if (!string.IsNullOrWhiteSpace(reasoningEffort) && SupportsReasoningEffort(effectiveModel))
             {
                 payload["reasoning_effort"] = reasoningEffort;
             }
@@ -334,7 +354,7 @@ public sealed class ChatClassifier : IChatClient, IDisposable
             using var doc = JsonDocument.Parse(respJson);
 
             var root = doc.RootElement;
-            var returnedModel = root.TryGetProperty("model", out var modelProp) ? modelProp.GetString() : _options.Model;
+            var returnedModel = root.TryGetProperty("model", out var modelProp) ? modelProp.GetString() : effectiveModel;
 
             if (root.TryGetProperty("choices", out var choices) &&
                 choices.ValueKind == JsonValueKind.Array &&
@@ -361,7 +381,13 @@ public sealed class ChatClassifier : IChatClient, IDisposable
                                 var fnArgs = fnProp.TryGetProperty("arguments", out var argsProp)
                                     ? (argsProp.ValueKind == JsonValueKind.String ? argsProp.GetString() ?? "{}" : argsProp.GetRawText())
                                     : "{}";
-                                parsedToolCalls.Add(new ToolCall(id, type, new ToolCallFunction(fnName, fnArgs)));
+                                // Raw, unread - see ToolCall.ExtraContent. Gemini hides a
+                                // required thought_signature in here.
+                                var extra = tc.TryGetProperty("extra_content", out var extraProp)
+                                    ? extraProp.GetRawText()
+                                    : null;
+
+                                parsedToolCalls.Add(new ToolCall(id, type, new ToolCallFunction(fnName, fnArgs), extra));
                             }
                         }
                     }
@@ -381,6 +407,71 @@ public sealed class ChatClassifier : IChatClient, IDisposable
         catch (Exception ex)
         {
             return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: ex.InnerException?.Message ?? ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// OpenAI reasoning models (o1/o3) and Gemini's OpenAI-compatible surface
+    /// both accept <c>reasoning_effort</c> - confirmed live against
+    /// gemini-3.6-flash. Local providers (Ollama, LM Studio) hang or reject on
+    /// it, so it is withheld from anything not on this list rather than sent
+    /// unconditionally. One place, shared by CompleteAsync and
+    /// CompleteWithToolsAsync, because two separate copies of this check drifted
+    /// out of sync once already - Job A's "low" and Job B's "high" were silent
+    /// no-ops against the previous o1/o3-only version.
+    /// </summary>
+    private static bool SupportsReasoningEffort(string model) =>
+        model.StartsWith("o1", StringComparison.OrdinalIgnoreCase)
+        || model.StartsWith("o3", StringComparison.OrdinalIgnoreCase)
+        || model.StartsWith("gemini", StringComparison.OrdinalIgnoreCase);
+
+    public async Task<IReadOnlyList<string>> ListModelsAsync(CancellationToken ct = default)
+    {
+        var endpoint = await ResolveEndpointAsync(ct).ConfigureAwait(false);
+        if (endpoint is null)
+        {
+            return [];
+        }
+
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, $"{endpoint}/models");
+            if (!string.IsNullOrWhiteSpace(_options.ApiKey))
+            {
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
+            }
+
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, _options.ConnectTimeoutSeconds)));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+
+            using var resp = await _client.SendAsync(req, linkedCts.Token).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                return [];
+            }
+
+            var json = await resp.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
+            using var doc = JsonDocument.Parse(json);
+
+            if (!doc.RootElement.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            {
+                return [];
+            }
+
+            var ids = new List<string>();
+            foreach (var m in data.EnumerateArray())
+            {
+                if (m.TryGetProperty("id", out var idProp) && idProp.GetString() is { } id)
+                {
+                    ids.Add(id);
+                }
+            }
+
+            return ids;
+        }
+        catch
+        {
+            return [];
         }
     }
 

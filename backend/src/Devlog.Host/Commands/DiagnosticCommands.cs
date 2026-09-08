@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Devlog.Core.Abstractions;
+using Devlog.Core.Ai;
 using Devlog.Core.Configuration;
 using Devlog.Core.Domain;
 using Devlog.Core.Metrics;
@@ -107,6 +108,11 @@ public static class DiagnosticCommands
         if (cli.Has("--startup"))
         {
             return Startup(cli);
+        }
+
+        if (cli.Has("--unclassify"))
+        {
+            return Unclassify(host, cli);
         }
 
         return cli.Has("--classify") ? Classify(host, cli) : null;
@@ -273,6 +279,44 @@ public static class DiagnosticCommands
         return 0;
     }
 
+    /// <summary>
+    /// The correction path for a stored verdict — there was previously no way to
+    /// undo one at all. Deletes the row outright rather than marking it deleted:
+    /// the identity returns to pending and is reconsidered on the next derive or
+    /// classify-ai run, exactly like one that was never answered.
+    /// </summary>
+    private static int Unclassify(IHost host, CommandLine cli)
+    {
+        CommandLine.TrySetUtf8Console();
+
+        var values = cli.ValuesAfter("--unclassify");
+
+        if (values.Length < 1)
+        {
+            Console.WriteLine("""
+                usage: devlog unclassify "<identity>" [--keyword "<kw>"]
+                e.g.   devlog unclassify "August"
+                """);
+            return 1;
+        }
+
+        var site = string.Join(' ', values);
+        var keyword = cli.Value("--keyword");
+
+        var deleted = host.Services.GetRequiredService<ClassificationRuleStore>()
+            .DeleteAsync(site, keyword)
+            .GetAwaiter().GetResult();
+
+        if (!deleted)
+        {
+            Console.WriteLine($"  No stored rule for '{site}'{(keyword is null ? "" : $" (keyword '{keyword}')")}.");
+            return 1;
+        }
+
+        Console.WriteLine($"  Deleted the rule for '{site}'. It returns to pending on the next derive.");
+        return 0;
+    }
+
     private static int ScanGit(IHost host)
     {
         CommandLine.TrySetUtf8Console();
@@ -347,8 +391,8 @@ public static class DiagnosticCommands
 
         var (from, to) = cli switch
         {
-            _ when cli.Has("--month") => (today.AddDays(-29), today),
-            _ when cli.Has("--week") => (today.AddDays(-6), today),
+            _ when cli.Has("--month") => CalendarRange.For(DigestRangeKind.Month, today),
+            _ when cli.Has("--week") => CalendarRange.For(DigestRangeKind.Week, today),
             _ => (
                 DateOnly.TryParse(cli.Value("--from"), out var f) ? f : today.AddDays(-6),
                 DateOnly.TryParse(cli.Value("--to"), out var t) ? t : today)
@@ -370,19 +414,7 @@ public static class DiagnosticCommands
             var toUtc = new DateTimeOffset(to.AddDays(1).ToDateTime(TimeOnly.MinValue)).ToUnixTimeMilliseconds();
 
             var (proseMarkdown, note) = proseRunner.GenerateProseAsync(metrics, fromUtc, toUtc).GetAwaiter().GetResult();
-            if (proseMarkdown is not null)
-            {
-                var lines = markdown.Split('\n');
-                var headerLine = lines.FirstOrDefault(l => l.StartsWith("# devlog", StringComparison.OrdinalIgnoreCase))
-                    ?? $"# devlog — {metrics.From:MMM d} to {metrics.To:MMM d, yyyy}";
-                var restOfMarkdown = string.Join('\n', lines.Skip(1));
-
-                markdown = $"{headerLine}\n\n{proseMarkdown.TrimEnd()}\n\n{restOfMarkdown.TrimStart()}";
-            }
-            else if (note is not null)
-            {
-                markdown += $"\n\n*Note: Prose summary was skipped ({note})*\n";
-            }
+            markdown = DigestProseSplice.Apply(markdown, metrics, proseMarkdown, note);
         }
 
         var outPath = cli.Value("--out");
@@ -596,6 +628,19 @@ public static class DiagnosticCommands
         Console.WriteLine($"  endpoint         : {resolvedEndpoint ?? "(probing failed - no provider found)"}");
         Console.WriteLine($"  status           : {(reachable ? $"REACHABLE (reported model: {reportedModel})" : $"UNREACHABLE ({error})")}");
 
+        // Stated as a fact on every run, not raised as a warning. With a hosted
+        // provider this is the steady state, and an alarm that fires every time
+        // is one you stop reading - which would cost exactly the case it exists
+        // for. A host that is not this machine is named, so `devlog llm` can
+        // never answer "where does my data go" with a URL that looks local.
+        if (Uri.TryCreate(resolvedEndpoint, UriKind.Absolute, out var uri))
+        {
+            var offMachine = !uri.IsLoopback;
+            Console.WriteLine(offMachine
+                ? $"  data leaves here : YES -> {uri.Host} (session titles, commit messages, branch names)"
+                : "  data leaves here : no - provider is on this machine");
+        }
+
         if (!reachable)
         {
             Console.WriteLine("""
@@ -626,6 +671,12 @@ public static class DiagnosticCommands
         return runner.RunAsync(dryRun, limit).GetAwaiter().GetResult();
     }
 
+    /// <summary>
+    /// Renders <see cref="NarrateResult"/> to the console. The runner itself does
+    /// no I/O — same "one result, two renderers" discipline as <c>ISessionReader</c>
+    /// — so this is the only place <c>devlog narrate</c>'s output is composed, and
+    /// <c>POST /v1/narrate</c> renders the identical result as JSON instead.
+    /// </summary>
     private static int Narrate(IHost host, CommandLine cli)
     {
         CommandLine.TrySetUtf8Console();
@@ -636,7 +687,38 @@ public static class DiagnosticCommands
         var force = cli.Has("--force");
 
         var runner = host.Services.GetRequiredService<NarrateRunner>();
-        return runner.RunAsync(since, limit, dryRun, force).GetAwaiter().GetResult();
+        var result = runner.RunAsync(since, limit, dryRun, force).GetAwaiter().GetResult();
+
+        if (result.Outcomes.Count == 0)
+        {
+            Console.WriteLine("\nNo sessions needing narration in the selected window.\n");
+            return 0;
+        }
+
+        var mode = result.DryRun ? "PROPOSED NARRATIVES (--dry-run, no database writes)" : "SESSION NARRATIVES";
+        Console.WriteLine($"\n=== {mode} ({result.Outcomes.Count} sessions) ===\n");
+
+        foreach (var o in result.Outcomes)
+        {
+            var durationStr = Humanise(o.DurationSeconds);
+            var projectStr = string.IsNullOrWhiteSpace(o.Project) ? "" : $" ({o.Project})";
+
+            if (!o.Accepted || o.Narrative is null)
+            {
+                Console.WriteLine($"  [rejected] Session {o.SessionId}{projectStr} {durationStr}: {o.RejectionReason}");
+                continue;
+            }
+
+            var n = o.Narrative;
+            var wsStr = string.IsNullOrWhiteSpace(n.Workstream) ? "" : $" [{n.Workstream}]";
+            Console.WriteLine($"  Session {o.SessionId}{projectStr} {durationStr} -> [{n.Kind}]{wsStr} (confidence: {n.Confidence:F2})");
+            Console.WriteLine($"    \"{n.Narrative}\"");
+            Console.WriteLine($"    Evidence: {string.Join(" | ", n.Evidence)}");
+            Console.WriteLine();
+        }
+
+        Console.WriteLine($"\n  Finished: {result.AcceptedCount} accepted, {result.RejectedCount} rejected/skipped.\n");
+        return 0;
     }
 
     private static int LlmFixtures(IHost host, CommandLine cli)
@@ -727,7 +809,7 @@ public static class DiagnosticCommands
 
         var quiet = cli.Has("--quiet");
         var runner = host.Services.GetRequiredService<AskRunner>();
-        var result = runner.AskAsync(question, quiet).GetAwaiter().GetResult();
+        var result = runner.AskAsync(question, quiet: quiet).GetAwaiter().GetResult();
 
         if (!result.Success)
         {

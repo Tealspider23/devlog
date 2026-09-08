@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using Devlog.Core.Abstractions;
 using Devlog.Core.Configuration;
 using Devlog.Infrastructure.Ai;
 
@@ -153,6 +154,138 @@ public class ChatClassifierTests
         Assert.NotNull(sentBody);
         Assert.Contains("gpt-oss:20b", sentBody);
         Assert.Contains("json_schema", sentBody);
+    }
+
+    /// <summary>
+    /// The regression for `devlog ask` failing with HTTP 400 on its second turn.
+    /// Gemini attaches a required thought_signature under extra_content and
+    /// rejects the next request without it, so the field has to survive a full
+    /// round trip: parsed off the response, then written back out byte-identical.
+    /// Asserting only that it parsed would pass while the bug was live, because
+    /// the loss happened on the way back out.
+    /// </summary>
+    [Fact]
+    public async Task ToolCallExtraContent_SurvivesTheRoundTripBackToTheProvider()
+    {
+        const string signature = "ErA7Cq07ARFNMg-fake-but-opaque-signature-payload";
+
+        var sentBodies = new List<string>();
+        var handler = new StubHttpMessageHandler(async (req, ct) =>
+        {
+            if (req.Content is not null)
+            {
+                sentBodies.Add(await req.Content.ReadAsStringAsync(ct));
+            }
+
+            var responseJson = $$"""
+            {
+              "model": "gemini-3.6-flash",
+              "choices": [{
+                "index": 0,
+                "message": {
+                  "role": "assistant",
+                  "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": { "name": "getMetrics", "arguments": "{}" },
+                    "extra_content": { "google": { "thought_signature": "{{signature}}" } }
+                  }]
+                },
+                "finish_reason": "tool_calls"
+              }]
+            }
+            """;
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(responseJson, Encoding.UTF8, "application/json")
+            };
+        });
+
+        using var client = new HttpClient(handler);
+        var options = new AiOptions { Endpoint = "http://127.0.0.1:11434/v1", Model = "gemini-3.6-flash" };
+        using var classifier = new ChatClassifier(options, client);
+
+        var tools = new List<ToolDefinition>
+        {
+            new("getMetrics", "metrics for a range", "{\"type\":\"object\",\"properties\":{}}")
+        };
+
+        var first = await classifier.CompleteWithToolsAsync(
+            [new ChatMessage("user", "how many hours this week?")], tools, "low");
+
+        var toolCall = Assert.Single(first.Message!.ToolCalls!);
+        Assert.NotNull(toolCall.ExtraContent);
+        Assert.Contains(signature, toolCall.ExtraContent);
+
+        // The turn that actually failed against Gemini: send the assistant's own
+        // tool call back, plus the tool's result.
+        await classifier.CompleteWithToolsAsync(
+            [
+                new ChatMessage("user", "how many hours this week?"),
+                first.Message,
+                new ChatMessage("tool", "{\"trackedSeconds\":3600}", toolCall.Id)
+            ],
+            tools,
+            "low");
+
+        var secondRequest = sentBodies[^1];
+        Assert.Contains("extra_content", secondRequest);
+        Assert.Contains(signature, secondRequest);
+
+        // Sent as real JSON, not as an escaped string. A quoted blob reaches the
+        // provider as unreadable text and is refused exactly like a missing one.
+        Assert.DoesNotContain("\\\"thought_signature\\\"", secondRequest);
+    }
+
+    /// <summary>
+    /// A provider that sends no extra_content must get none back — not an
+    /// explicit null, which some reject outright.
+    /// </summary>
+    [Fact]
+    public async Task ToolCallWithoutExtraContent_SerialisesWithNoSuchKey()
+    {
+        var sentBodies = new List<string>();
+        var handler = new StubHttpMessageHandler(async (req, ct) =>
+        {
+            if (req.Content is not null)
+            {
+                sentBodies.Add(await req.Content.ReadAsStringAsync(ct));
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                {
+                  "model": "gpt-oss:20b",
+                  "choices": [{
+                    "index": 0,
+                    "message": {
+                      "role": "assistant",
+                      "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": { "name": "getMetrics", "arguments": "{}" }
+                      }]
+                    }
+                  }]
+                }
+                """, Encoding.UTF8, "application/json")
+            };
+        });
+
+        using var client = new HttpClient(handler);
+        var options = new AiOptions { Endpoint = "http://127.0.0.1:11434/v1", Model = "gpt-oss:20b" };
+        using var classifier = new ChatClassifier(options, client);
+
+        var first = await classifier.CompleteWithToolsAsync(
+            [new ChatMessage("user", "hours?")], [], "low");
+
+        Assert.Null(Assert.Single(first.Message!.ToolCalls!).ExtraContent);
+
+        await classifier.CompleteWithToolsAsync([new ChatMessage("user", "hours?"), first.Message], [], "low");
+
+        Assert.DoesNotContain("extra_content", sentBodies[^1]);
     }
 
     [Fact]

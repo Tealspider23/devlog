@@ -59,11 +59,18 @@ public sealed class AskRunnerTests : IDisposable
         public bool Reachable { get; set; } = true;
         public Func<IReadOnlyList<ChatMessage>, IReadOnlyList<ToolDefinition>?, Task<ToolChatResult>>? Handler { get; set; }
 
-        public Task<ChatResult> CompleteAsync(string systemPrompt, string userContent, string jsonSchemaName, string jsonSchema, string reasoningEffort, CancellationToken ct = default) =>
-            Task.FromResult(new ChatResult(Reachable, "{}", "stub", null));
+        public string? LastRequestedModel { get; private set; }
 
-        public Task<ToolChatResult> CompleteWithToolsAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition>? tools, string reasoningEffort, CancellationToken ct = default)
+        public Task<ChatResult> CompleteAsync(string systemPrompt, string userContent, string jsonSchemaName, string jsonSchema, string reasoningEffort, CancellationToken ct = default, string? model = null)
         {
+            LastRequestedModel = model;
+            return Task.FromResult(new ChatResult(Reachable, "{}", model ?? "stub", null));
+        }
+
+        public Task<ToolChatResult> CompleteWithToolsAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition>? tools, string reasoningEffort, CancellationToken ct = default, string? model = null)
+        {
+            LastRequestedModel = model;
+
             if (!Reachable)
             {
                 return Task.FromResult(new ToolChatResult(false, null, null, "Stub unreachable"));
@@ -74,11 +81,12 @@ public sealed class AskRunnerTests : IDisposable
                 return Handler(messages, tools);
             }
 
-            return Task.FromResult(new ToolChatResult(true, new ChatMessage("assistant", "Direct answer"), "stub", null));
+            return Task.FromResult(new ToolChatResult(true, new ChatMessage("assistant", "Direct answer"), model ?? "stub", null));
         }
 
         public Task<bool> IsReachableAsync(CancellationToken ct = default) => Task.FromResult(Reachable);
         public Task<string?> ResolveEndpointAsync(CancellationToken ct = default) => Task.FromResult<string?>("http://127.0.0.1:11434/v1");
+        public Task<IReadOnlyList<string>> ListModelsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<string>>([]);
     }
 
     [Fact]
@@ -163,5 +171,45 @@ public sealed class AskRunnerTests : IDisposable
         Assert.Equal(2, result.ToolRounds);
         Assert.Contains("getSessions", result.ToolsUsed);
         Assert.Empty(result.UnverifiedNumbers);
+    }
+
+    /// <summary>
+    /// The number check used to log a warning and return the answer regardless -
+    /// a warning nothing acted on and `devlog ask` never surfaces. It must now
+    /// withhold the answer instead of printing an unverified figure.
+    /// </summary>
+    [Fact]
+    public async Task AskAsync_WithholdsTheAnswer_WhenItCitesAnUnverifiedNumber()
+    {
+        var stubClient = new StubChatClient
+        {
+            Handler = (_, _) => Task.FromResult(new ToolChatResult(
+                true,
+                new ChatMessage("assistant", "You worked 999 hours this week."),
+                "stub-model",
+                null))
+        };
+
+        var runner = new AskRunner(stubClient, _reader, _narrativeStore, _ruleStore, new AiOptions { Model = "stub-model" }, NullLogger<AskRunner>.Instance);
+
+        var result = await runner.AskAsync("How many hours this week?");
+
+        Assert.False(result.Success);
+        Assert.Null(result.Answer);
+        Assert.Contains("999", result.Error);
+        Assert.Contains("999", result.UnverifiedNumbers);
+    }
+
+    [Fact]
+    public async Task AskAsync_ReturnsError_WhenAskJobIsDisabled()
+    {
+        var stubClient = new StubChatClient();
+        var options = new AiOptions { Model = "stub-model", Jobs = new AiJobSwitches { Ask = false } };
+        var runner = new AskRunner(stubClient, _reader, _narrativeStore, _ruleStore, options, NullLogger<AskRunner>.Instance);
+
+        var result = await runner.AskAsync("What did I do today?");
+
+        Assert.False(result.Success);
+        Assert.Contains("disabled", result.Error, StringComparison.OrdinalIgnoreCase);
     }
 }

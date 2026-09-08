@@ -28,6 +28,13 @@ public sealed record LongestBlock(long StartUtc, long EndUtc, string? Project, i
 public sealed record BestDay(DateOnly Date, int DeepSeconds);
 
 /// <summary>
+/// One calendar day's share of a digest range — the per-day bar the Week/Month
+/// pages draw. The same grouping <see cref="MetricsCalculator"/> already builds
+/// to find <see cref="BestDay"/>, kept instead of discarded.
+/// </summary>
+public sealed record DayStat(DateOnly Date, int DeepSeconds, int TrackedSeconds, int CommitCount);
+
+/// <summary>
 /// The deterministic content of a brag document, computed once and rendered
 /// twice — see <see cref="DigestWriter"/> for the CLI/API renderer, and
 /// <c>Devlog.Api.Contracts.DigestDto</c> for the shape the UI reads to draw its
@@ -64,6 +71,9 @@ public sealed record DigestMetrics
     public LongestBlock? LongestBlock { get; init; }
 
     public BestDay? BestDay { get; init; }
+
+    /// <summary>One row per calendar day with at least one session; days with none are simply absent, not zero-filled.</summary>
+    public required IReadOnlyList<DayStat> DailyBreakdown { get; init; }
 
     public required IReadOnlyList<ProjectTime> TimeByProject { get; init; }
 
