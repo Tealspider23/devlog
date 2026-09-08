@@ -119,20 +119,32 @@ These are load-bearing, not stylistic:
 // Devlog.Core/Domain/ActivityCategory.cs
 public enum ActivityCategory
 {
-    Other = 0,        // Unclassified. The honest default - never guessed silently.
+    Other = 0,        // Unclassified fallback, or a genuine "fits nothing" verdict.
     Coding,
     Learning,
     Communication,
     Meeting,
     FileManagement,
     Distraction,
-    Personal
+    Personal,
+    Admin             // Work admin that isn't a conversation or a call.
 }
 ```
 
-There are **exactly eight**. `Other = 0` is explicit; the rest are sequential.
+There are **exactly nine**. `Other = 0` is explicit; the rest are sequential.
 There is no `Unknown` member — see section 4 for how an unsure verdict is
 represented.
+
+`Other` is deliberately dual-purpose and worth understanding precisely:
+`GetUnclassifiedSecondsAsync` sums every activity where `category = 'Other'`
+regardless of *why* it carries that value — the derivation fallback before
+anything has answered an identity, and a confident "none of the above" verdict
+from a human or the classifier, are the same row to that query. `Admin` exists
+so ordinary work admin (timesheets, attendance, expenses, presentations) has a
+real home instead of collapsing into `Other` and inflating the "unclassified"
+figure for something that was, in fact, classified. Job A's prompt (4.2) tells
+the model to prefer a specific category over `Other` whenever one genuinely
+fits, for exactly this reason.
 
 ```csharp
 // Devlog.Core/Domain/Engagement.cs
@@ -733,7 +745,9 @@ Answer with exactly one category per identity, from this list and no other:
   Meeting         calls and video meetings, which are not interruptible
   FileManagement  file explorers, moving and organising files
   Distraction     social media, entertainment, games, videos for fun
-  Personal        shopping, banking, travel, property, admin unrelated to work
+  Personal        shopping, banking, travel, property — personal life, not work
+  Admin           work admin that isn't a conversation or a call: timesheets,
+                  attendance, expenses, presentations, HR/intranet tools
   Other           genuinely none of the above, and you are confident of that
   Unknown         you cannot tell from the evidence given
 
@@ -747,8 +761,11 @@ Rules:
   outside knowledge about what a website usually is if the titles contradict it.
 - A site can serve more than one purpose. If the sample titles disagree with each
   other, answer Unknown rather than picking the most common one.
-- "Other" means you are confident it fits no category. It is not a synonym for
-  Unknown.
+- Prefer a specific category over "Other" whenever one genuinely fits — Admin
+  exists precisely so ordinary work admin (timesheets, presentations, expense
+  reports) doesn't fall through to Other. "Other" means you looked and nothing
+  on the list fits, not "this is work but I didn't find its category." It is
+  not a synonym for Unknown either.
 - confidence is your own estimate from 0.0 to 1.0 that your category is correct.
 - reason is one short sentence citing what in the sample titles led you there.
 
@@ -792,7 +809,7 @@ User content:
               "identity":   { "type": "string" },
               "category":   { "type": "string",
                               "enum": ["Coding","Learning","Communication","Meeting",
-                                       "FileManagement","Distraction","Personal",
+                                       "FileManagement","Distraction","Personal","Admin",
                                        "Other","Unknown"] },
               "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
               "reason":     { "type": "string" }
@@ -961,9 +978,17 @@ no narrative and meet all of:
 
 Order by duration descending and cap per run (`--limit`, default 20).
 
+**Sessions are grouped into batches of `Ai:NarrateBatchSize` (default 10) and one
+call is made per batch, not per session** — a request costs the same against the
+provider's daily request quota (Google's free tier caps at 20/day, shared across
+every job) whether it carries one session or several, so batching is what makes
+a fixed quota cover `NarrateBatchSize` times as many sessions. See
+`NarrateRunner.RunAsync`, which chunks the eligible list with
+`Enumerable.Chunk` before calling the model.
+
 ### 5.3 Input assembly
 
-One session per call. Built from `ISessionReader`:
+Built from `ISessionReader`, once per session in the batch:
 
 ```csharp
 var summary   = await reader.GetByIdAsync(sessionId, ct);
@@ -1006,7 +1031,21 @@ timestamps and they only add tokens. **`project` per activity is
 `Activity.Project`, which is null for a browser tab or an unrecognised app.** It
 is the difference between "worked on orderbook-api" and "looked at something".
 
-### 5.4 The system prompt — verbatim
+### 5.3a Batch envelope
+
+The shape above is one entry. The actual request wraps a list of them:
+
+```json
+{ "sessions": [ { "sessionId": 412, "...": "..." }, { "sessionId": 413, "...": "..." } ] }
+```
+
+`BuildBatchUserContent` in `SessionNarratorPrompt` builds this; the per-session
+shape itself is unchanged and shared with the single-session path
+(`BuildUserContent`), which still exists — `LlmEvalRunner`'s Job B eval calls one
+session at a time on purpose, since an eval measuring the batched prompt would
+be measuring something the eval fixtures were not labelled against.
+
+### 5.4 The system prompt — single-session variant, verbatim
 
 ```
 You describe what a developer was doing during one work session.
@@ -1052,7 +1091,7 @@ Rules:
 Return only JSON matching the schema. No prose, no markdown, no code fences.
 ```
 
-### 5.5 Response schema
+### 5.5 Response schema — single-session variant
 
 ```json
 {
@@ -1079,6 +1118,113 @@ Return only JSON matching the schema. No prose, no markdown, no code fences.
   }
 }
 ```
+
+### 5.4a The system prompt — batch variant, verbatim
+
+What `NarrateRunner` actually sends. Same task and rules, restated per-session so
+the model treats each session as its own closed world and never borrows a fact
+from one session in the batch to support another:
+
+```
+You describe what a developer was doing during a batch of work sessions.
+
+You are given several sessions. For each one: its project, duration, and the
+ordered list of activities inside it, plus any commits that landed during it.
+Times are in seconds from the start of that session — each session's clock
+starts over at zero.
+
+Answer once per session, in the same order they are given, each keyed by its
+sessionId. Produce for each:
+
+- narrative: one or two sentences, past tense, plain and specific. Describe what
+  happened, in order, as a colleague would explain it. Do not editorialise about
+  productivity, focus or effort.
+- kind: exactly one of
+    feature-work        building something new
+    bugfix              diagnosing or fixing a defect
+    mr-review           reviewing someone else's change
+    research            reading, learning, evaluating
+    meeting-followup    acting on something from a call or chat
+    admin               timesheets, tickets, non-code housekeeping
+    context-thrash      genuinely scattered, no single thread
+    unclear             you cannot tell
+- workstream: a ticket id, branch name or feature name if one appears in that
+  session's own input. null if none does. Never invent one.
+- evidence: 2 to 4 short strings, each quoting or naming something that ACTUALLY
+  APPEARS in that same session's input and supports your reading.
+
+Rules:
+
+- Every claim in a session's narrative must be supported by that session's own
+  input. You may connect events in sequence within a session - that is the point
+  of this task - but you may not introduce facts that are not there, and you may
+  not use evidence or facts from a different session in this batch to support
+  this one. Each session is its own closed world.
+- Each evidence string must refer to content present in that same session's
+  input. If you cannot produce two pieces of real evidence for a session, answer
+  that session's kind "unclear" with low confidence.
+- "context-thrash" and "unclear" are correct answers. A scattered session is a
+  real and useful finding. Do not invent a coherent story for an incoherent
+  session - the user would rather know. A low-confidence "unclear" costs
+  nothing: the session is simply asked about again later. A confident but
+  invented "feature-work" is stored and treated as fact.
+- Do not calculate or restate durations, totals or percentages. Numbers are
+  computed elsewhere and yours would conflict with them.
+- Do not mention the person's name or judge them.
+- Return exactly one entry per session you were given, in the same order, each
+  with its matching sessionId.
+
+Return only JSON matching the schema. No prose, no markdown, no code fences.
+```
+
+### 5.5a Response schema — batch variant
+
+```json
+{
+  "type": "json_schema",
+  "json_schema": {
+    "name": "session_narratives_batch",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["narratives"],
+      "properties": {
+        "narratives": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sessionId","narrative","kind","workstream","evidence","confidence"],
+            "properties": {
+              "sessionId":  { "type": "integer" },
+              "narrative":  { "type": "string" },
+              "kind":       { "type": "string",
+                              "enum": ["feature-work","bugfix","mr-review","research",
+                                       "meeting-followup","admin","context-thrash","unclear"] },
+              "workstream": { "type": ["string","null"] },
+              "evidence":   { "type": "array", "minItems": 2, "maxItems": 4,
+                              "items": { "type": "string" } },
+              "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+`ValidateAndParseBatch` matches each response entry back to its input by
+`sessionId` — not by array position — and returns one result per input **in
+input order**, so a caller never has to trust the model's own ordering. A
+session the model drops from its response is rejected on its own
+("No narrative returned for session N in the batch response"); it does not fail
+the sibling results from the same call. The evidence check (5.6) runs
+per-session exactly as in the single-session path, against that session's own
+activities and commits only — the batch prompt's "closed world" rule is a
+request to the model, this is the check that holds regardless of whether the
+model honours it.
 
 ### 5.6 The evidence check — the hallucination detector
 
