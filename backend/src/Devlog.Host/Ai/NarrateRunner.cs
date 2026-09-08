@@ -58,7 +58,7 @@ public sealed class NarrateRunner(
         }
 
         var limit = limitOverride ?? 20;
-        var batch = toProcess
+        var toNarrate = toProcess
             .OrderByDescending(s => s.Session.DurationSeconds)
             .Take(limit)
             .ToList();
@@ -67,61 +67,85 @@ public sealed class NarrateRunner(
         int accepted = 0;
         int rejected = 0;
 
-        foreach (var s in batch)
+        // One request per batch, not per session — a request costs the same
+        // against the provider's daily quota regardless of size, so batching
+        // is what makes a fixed quota cover more than `batchSize` sessions a
+        // day. See AiOptions.NarrateBatchSize.
+        var batchSize = Math.Max(1, options.NarrateBatchSize);
+        foreach (var chunk in toNarrate.Chunk(batchSize))
         {
-            var activities = await sessionReader.GetActivitiesAsync(s.Session.Id, ct).ConfigureAwait(false);
-            var commits = await sessionReader.GetCommitsForSessionAsync(s.Session.Id, ct).ConfigureAwait(false);
+            var inputs = new List<SessionNarrationInput>(chunk.Length);
+            foreach (var s in chunk)
+            {
+                var activities = await sessionReader.GetActivitiesAsync(s.Session.Id, ct).ConfigureAwait(false);
+                var commits = await sessionReader.GetCommitsForSessionAsync(s.Session.Id, ct).ConfigureAwait(false);
+                inputs.Add(new SessionNarrationInput(s, activities, commits));
+            }
 
-            var userContent = SessionNarratorPrompt.BuildUserContent(s, activities, commits);
+            var userContent = SessionNarratorPrompt.BuildBatchUserContent(inputs);
             var chatResult = await chatClient.CompleteAsync(
-                SessionNarratorPrompt.SystemPrompt,
+                SessionNarratorPrompt.BatchSystemPrompt,
                 userContent,
-                SessionNarratorPrompt.SchemaName,
-                SessionNarratorPrompt.JsonSchema,
+                SessionNarratorPrompt.BatchSchemaName,
+                SessionNarratorPrompt.BatchJsonSchema,
                 reasoningEffort: "high",
                 ct).ConfigureAwait(false);
 
             if (!chatResult.Reachable || string.IsNullOrWhiteSpace(chatResult.Content))
             {
-                rejected++;
-                outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, false, null, chatResult.Error ?? "no response"));
+                var reason = chatResult.Error ?? "no response";
+                foreach (var s in chunk)
+                {
+                    rejected++;
+                    outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, false, null, reason));
+                }
                 continue;
             }
 
-            SessionNarrativeResult parseResult;
+            IReadOnlyList<SessionNarrativeResult> parseResults;
             try
             {
-                parseResult = SessionNarratorPrompt.ValidateAndParse(
+                parseResults = SessionNarratorPrompt.ValidateAndParseBatch(
                     chatResult.Content,
-                    s,
-                    activities,
-                    commits,
+                    inputs,
                     options.MinConfidence,
                     options.Model,
                     DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             }
             catch (Exception ex)
             {
-                rejected++;
-                outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, false, null, ex.Message));
+                foreach (var s in chunk)
+                {
+                    rejected++;
+                    outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, false, null, ex.Message));
+                }
                 continue;
             }
 
-            if (!parseResult.IsAccepted || parseResult.Narrative is null)
+            // parseResults is positional against inputs/chunk — ValidateAndParseBatch
+            // guarantees one result per input, in the same order, regardless of how
+            // the model ordered its own response.
+            for (int i = 0; i < chunk.Length; i++)
             {
-                rejected++;
-                outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, false, null, parseResult.RejectionReason));
-                continue;
-            }
+                var s = chunk[i];
+                var parseResult = parseResults[i];
 
-            var n = parseResult.Narrative;
-            if (!dryRun)
-            {
-                await narrativeStore.UpsertAsync(n, ct).ConfigureAwait(false);
-            }
+                if (!parseResult.IsAccepted || parseResult.Narrative is null)
+                {
+                    rejected++;
+                    outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, false, null, parseResult.RejectionReason));
+                    continue;
+                }
 
-            accepted++;
-            outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, true, n, null));
+                var n = parseResult.Narrative;
+                if (!dryRun)
+                {
+                    await narrativeStore.UpsertAsync(n, ct).ConfigureAwait(false);
+                }
+
+                accepted++;
+                outcomes.Add(new NarrateOutcome(s.Session.Id, s.Session.StartUtc, s.Session.Project, s.Session.DurationSeconds, true, n, null));
+            }
         }
 
         return new NarrateResult(dryRun, accepted, rejected, outcomes);

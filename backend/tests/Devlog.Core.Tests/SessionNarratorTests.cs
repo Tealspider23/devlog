@@ -338,6 +338,127 @@ public class SessionNarratorTests
     }
 
     [Fact]
+    public void BuildBatchUserContent_SerializesEverySessionInTheBatch()
+    {
+        var first = new SessionNarrationInput(CreateSummary(sessionId: 412), CreateActivities(), CreateCommits());
+        var second = new SessionNarrationInput(CreateSummary(sessionId: 500, project: "billing-service"), [], []);
+
+        var json = SessionNarratorPrompt.BuildBatchUserContent([first, second]);
+
+        Assert.Contains("412", json);
+        Assert.Contains("orderbook-api", json);
+        Assert.Contains("AuthController.cs", json);
+        Assert.Contains("500", json);
+        Assert.Contains("billing-service", json);
+    }
+
+    /// <summary>
+    /// The order guarantee that lets NarrateRunner zip results back onto the
+    /// sessions it asked about without trusting the model's own ordering -
+    /// the response here deliberately answers session 500 before 412.
+    /// </summary>
+    [Fact]
+    public void ValidateAndParseBatch_ReturnsResults_InInputOrder_NotResponseOrder()
+    {
+        var first = new SessionNarrationInput(CreateSummary(sessionId: 412), CreateActivities(), CreateCommits());
+        var second = new SessionNarrationInput(CreateSummary(sessionId: 500, project: "billing-service"), CreateActivities(), CreateCommits());
+
+        var responseJson = """
+        {
+          "narratives": [
+            {
+              "sessionId": 500,
+              "narrative": "Worked on billing-service.",
+              "kind": "feature-work",
+              "workstream": null,
+              "evidence": ["AuthController.cs", "GitLab"],
+              "confidence": 0.90
+            },
+            {
+              "sessionId": 412,
+              "narrative": "Reviewed merge request !59 and fixed the login redirect loop in orderbook-api.",
+              "kind": "mr-review",
+              "workstream": "US-1569",
+              "evidence": ["Merge request !59 in GitLab", "Edited AuthController.cs in orderbook-api"],
+              "confidence": 0.95
+            }
+          ]
+        }
+        """;
+
+        var results = SessionNarratorPrompt.ValidateAndParseBatch(
+            responseJson, [first, second], 0.60, "gpt-oss:20b", 1725257000000);
+
+        Assert.Equal(2, results.Count);
+        Assert.True(results[0].IsAccepted);
+        Assert.Equal(412, results[0].Narrative!.SessionId);
+        Assert.True(results[1].IsAccepted);
+        Assert.Equal(500, results[1].Narrative!.SessionId);
+    }
+
+    /// <summary>
+    /// A session the model dropped from its response is rejected on its own -
+    /// the sibling results from the same batch call are still worth keeping
+    /// rather than failing the whole batch for one omission.
+    /// </summary>
+    [Fact]
+    public void ValidateAndParseBatch_RejectsOnlyTheMissingSession_KeepsTheRest()
+    {
+        var first = new SessionNarrationInput(CreateSummary(sessionId: 412), CreateActivities(), CreateCommits());
+        var second = new SessionNarrationInput(CreateSummary(sessionId: 500, project: "billing-service"), CreateActivities(), CreateCommits());
+
+        var responseJson = """
+        {
+          "narratives": [
+            {
+              "sessionId": 412,
+              "narrative": "Reviewed merge request !59 and fixed the login redirect loop in orderbook-api.",
+              "kind": "mr-review",
+              "workstream": "US-1569",
+              "evidence": ["Merge request !59 in GitLab", "Edited AuthController.cs in orderbook-api"],
+              "confidence": 0.95
+            }
+          ]
+        }
+        """;
+
+        var results = SessionNarratorPrompt.ValidateAndParseBatch(
+            responseJson, [first, second], 0.60, "gpt-oss:20b", 1725257000000);
+
+        Assert.Equal(2, results.Count);
+        Assert.True(results[0].IsAccepted);
+        Assert.False(results[1].IsAccepted);
+        Assert.Contains("No narrative returned", results[1].RejectionReason);
+    }
+
+    [Fact]
+    public void ValidateAndParseBatch_StillAppliesEvidenceCheck_PerSession()
+    {
+        var first = new SessionNarrationInput(CreateSummary(sessionId: 412), CreateActivities(), CreateCommits());
+
+        var responseJson = """
+        {
+          "narratives": [
+            {
+              "sessionId": 412,
+              "narrative": "Something vague happened.",
+              "kind": "feature-work",
+              "workstream": null,
+              "evidence": ["Nonexistent Thing One", "Completely Invented Reference"],
+              "confidence": 0.90
+            }
+          ]
+        }
+        """;
+
+        var results = SessionNarratorPrompt.ValidateAndParseBatch(
+            responseJson, [first], 0.60, "gpt-oss:20b", 1725257000000);
+
+        Assert.False(results[0].IsAccepted);
+        Assert.Contains("Hallucination", results[0].RejectionReason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void ValidateAndParse_RejectsInvalidKind()
     {
         var summary = CreateSummary();

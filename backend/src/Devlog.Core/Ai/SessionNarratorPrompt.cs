@@ -5,12 +5,19 @@ using Devlog.Core.Domain;
 
 namespace Devlog.Core.Ai;
 
+/// <summary>One session's evidence, bundled for a batched narrate call.</summary>
+public sealed record SessionNarrationInput(
+    SessionSummary Summary,
+    IReadOnlyList<Activity> Activities,
+    IReadOnlyList<CommitRecord> Commits);
+
 /// <summary>
 /// Job B: Session narrative prompt, input assembler, JSON schema, and evidence validator.
 /// </summary>
 public static class SessionNarratorPrompt
 {
     public const string SchemaName = "session_narrative";
+    public const string BatchSchemaName = "session_narratives_batch";
 
     public static readonly string[] AllowedKinds =
     [
@@ -102,9 +109,126 @@ public static class SessionNarratorPrompt
         """;
 
     /// <summary>
+    /// The batch system prompt — verbatim from docs/LLM.md section 5.3a.
+    /// Same task and rules as <see cref="SystemPrompt"/>, restated per-session
+    /// so the model treats each session's evidence as its own closed world and
+    /// never borrows a fact from one session to support another in the batch.
+    /// </summary>
+    public const string BatchSystemPrompt = """
+        You describe what a developer was doing during a batch of work sessions.
+
+        You are given several sessions. For each one: its project, duration, and the
+        ordered list of activities inside it, plus any commits that landed during it.
+        Times are in seconds from the start of that session — each session's clock
+        starts over at zero.
+
+        Answer once per session, in the same order they are given, each keyed by its
+        sessionId. Produce for each:
+
+        - narrative: one or two sentences, past tense, plain and specific. Describe what
+          happened, in order, as a colleague would explain it. Do not editorialise about
+          productivity, focus or effort.
+        - kind: exactly one of
+            feature-work        building something new
+            bugfix              diagnosing or fixing a defect
+            mr-review           reviewing someone else's change
+            research            reading, learning, evaluating
+            meeting-followup    acting on something from a call or chat
+            admin               timesheets, tickets, non-code housekeeping
+            context-thrash      genuinely scattered, no single thread
+            unclear             you cannot tell
+        - workstream: a ticket id, branch name or feature name if one appears in that
+          session's own input. null if none does. Never invent one.
+        - evidence: 2 to 4 short strings, each quoting or naming something that ACTUALLY
+          APPEARS in that same session's input and supports your reading.
+
+        Rules:
+
+        - Every claim in a session's narrative must be supported by that session's own
+          input. You may connect events in sequence within a session - that is the point
+          of this task - but you may not introduce facts that are not there, and you may
+          not use evidence or facts from a different session in this batch to support
+          this one. Each session is its own closed world.
+        - Each evidence string must refer to content present in that same session's
+          input. If you cannot produce two pieces of real evidence for a session, answer
+          that session's kind "unclear" with low confidence.
+        - "context-thrash" and "unclear" are correct answers. A scattered session is a
+          real and useful finding. Do not invent a coherent story for an incoherent
+          session - the user would rather know. A low-confidence "unclear" costs
+          nothing: the session is simply asked about again later. A confident but
+          invented "feature-work" is stored and treated as fact.
+        - Do not calculate or restate durations, totals or percentages. Numbers are
+          computed elsewhere and yours would conflict with them.
+        - Do not mention the person's name or judge them.
+        - Return exactly one entry per session you were given, in the same order, each
+          with its matching sessionId.
+
+        Return only JSON matching the schema. No prose, no markdown, no code fences.
+        """;
+
+    /// <summary>
+    /// Batch response schema — verbatim from docs/LLM.md section 5.5a. Each
+    /// item is shaped exactly like the single-session <see cref="JsonSchema"/>.
+    /// </summary>
+    public const string BatchJsonSchema = """
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["narratives"],
+          "properties": {
+            "narratives": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["sessionId", "narrative", "kind", "workstream", "evidence", "confidence"],
+                "properties": {
+                  "sessionId":  { "type": "integer" },
+                  "narrative":  { "type": "string" },
+                  "kind":       { "type": "string",
+                                  "enum": ["feature-work","bugfix","mr-review","research",
+                                           "meeting-followup","admin","context-thrash","unclear"] },
+                  "workstream": { "type": ["string","null"] },
+                  "evidence":   { "type": "array", "minItems": 2, "maxItems": 4,
+                                  "items": { "type": "string" } },
+                  "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+                }
+              }
+            }
+          }
+        }
+        """;
+
+    /// <summary>
     /// Assembles user input JSON for a single session per docs/LLM.md section 5.3.
     /// </summary>
     public static string BuildUserContent(
+        SessionSummary summary,
+        IReadOnlyList<Activity> activities,
+        IReadOnlyList<CommitRecord> commits)
+    {
+        return JsonSerializer.Serialize(
+            BuildSessionPayload(summary, activities, commits),
+            new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    /// <summary>
+    /// Assembles user input JSON for a batch of sessions in one call — see
+    /// docs/LLM.md section 5.3a. One request costs the same against the
+    /// provider's daily quota whether it carries one session or several, so
+    /// batching is the lever for making a fixed quota cover more sessions.
+    /// </summary>
+    public static string BuildBatchUserContent(IReadOnlyList<SessionNarrationInput> inputs)
+    {
+        var payload = new
+        {
+            sessions = inputs.Select(i => BuildSessionPayload(i.Summary, i.Activities, i.Commits)).ToArray()
+        };
+
+        return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    private static object BuildSessionPayload(
         SessionSummary summary,
         IReadOnlyList<Activity> activities,
         IReadOnlyList<CommitRecord> commits)
@@ -142,7 +266,7 @@ public static class SessionNarratorPrompt
             });
         }
 
-        var payload = new
+        return new
         {
             sessionId = session.Id,
             start = startIso,
@@ -154,8 +278,6 @@ public static class SessionNarratorPrompt
             activities = actList,
             commits = commitList
         };
-
-        return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
     }
 
     /// <summary>
@@ -171,8 +293,60 @@ public static class SessionNarratorPrompt
         long generatedUtc)
     {
         using var doc = JsonDocument.Parse(responseJson);
-        var root = doc.RootElement;
+        return ValidateOne(doc.RootElement, summary, activities, commits, minConfidence, model, generatedUtc);
+    }
 
+    /// <summary>
+    /// Parses and validates a batch response, one result per <paramref name="inputs"/>
+    /// entry in the same order — not response order, so a caller can zip results
+    /// back onto the sessions it asked about regardless of how the model ordered
+    /// its answer. A session missing from the response (the model dropped it, or
+    /// returned an unrecognised sessionId) is rejected individually rather than
+    /// failing the whole batch — the sibling results in the same call are still
+    /// worth keeping.
+    /// </summary>
+    public static IReadOnlyList<SessionNarrativeResult> ValidateAndParseBatch(
+        string responseJson,
+        IReadOnlyList<SessionNarrationInput> inputs,
+        double minConfidence,
+        string model,
+        long generatedUtc)
+    {
+        using var doc = JsonDocument.Parse(responseJson);
+        var byId = new Dictionary<long, JsonElement>();
+
+        if (doc.RootElement.TryGetProperty("narratives", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in arr.EnumerateArray())
+            {
+                if (item.TryGetProperty("sessionId", out var sidProp) && sidProp.ValueKind == JsonValueKind.Number)
+                {
+                    byId[sidProp.GetInt64()] = item;
+                }
+            }
+        }
+
+        var results = new List<SessionNarrativeResult>(inputs.Count);
+        foreach (var input in inputs)
+        {
+            var sessionId = input.Summary.Session.Id;
+            results.Add(byId.TryGetValue(sessionId, out var item)
+                ? ValidateOne(item, input.Summary, input.Activities, input.Commits, minConfidence, model, generatedUtc)
+                : SessionNarrativeResult.Rejected($"No narrative returned for session {sessionId} in the batch response"));
+        }
+
+        return results;
+    }
+
+    private static SessionNarrativeResult ValidateOne(
+        JsonElement root,
+        SessionSummary summary,
+        IReadOnlyList<Activity> activities,
+        IReadOnlyList<CommitRecord> commits,
+        double minConfidence,
+        string model,
+        long generatedUtc)
+    {
         if (!root.TryGetProperty("sessionId", out var sidProp) || sidProp.GetInt64() != summary.Session.Id)
         {
             return SessionNarrativeResult.Rejected($"SessionId mismatch (expected {summary.Session.Id})");

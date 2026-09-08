@@ -23,6 +23,17 @@ public sealed class AiOptions
 
     public int ClassifyBatchSize { get; set; } = 10;
 
+    /// <summary>
+    /// Sessions narrated per model call. Each call costs one request against
+    /// the provider's daily request quota regardless of size — Gemini's free
+    /// tier caps at 20/day, shared across every AI job — so this is the lever
+    /// that turns "20 sessions/day" into "20 batches/day". The fixed prompt
+    /// overhead (~700 tokens) is paid once per batch instead of once per
+    /// session; 10 keeps total input well under the ~128k context window even
+    /// for verbose sessions.
+    /// </summary>
+    public int NarrateBatchSize { get; set; } = 10;
+
     public AiJobSwitches Jobs { get; set; } = new();
 }
 
