@@ -14,7 +14,7 @@ public static class SessionEndpoints
         return group;
     }
 
-    private static async Task<IResult> GetSession(long id, ISessionReader reader, CancellationToken ct)
+    private static async Task<IResult> GetSession(long id, ISessionReader reader, INarrativeStore narrativeStore, CancellationToken ct)
     {
         var summary = await reader.GetByIdAsync(id, ct);
 
@@ -25,10 +25,12 @@ public static class SessionEndpoints
 
         var activities = await reader.GetActivitiesAsync(id, ct);
         var commits = await reader.GetCommitsForSessionAsync(id, ct);
+        var narrative = await narrativeStore.GetByStartUtcAsync(summary.Session.StartUtc, ct);
 
         return Results.Ok(new SessionDetailDto(
             SessionDto.From(summary),
             [.. activities.Select(ActivityDto.From)],
-            [.. commits.Select(CommitDto.From)]));
+            [.. commits.Select(CommitDto.From)],
+            narrative is null ? null : NarrativeDto.From(narrative)));
     }
 }

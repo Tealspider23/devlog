@@ -60,6 +60,7 @@ public static class ApiExtensions
         v1.MapDeriveEndpoints();
         v1.MapGitScanEndpoints();
         v1.MapDigestEndpoints();
+        v1.MapAiEndpoints();
 
         // Last: the dashboard's fallback must lose to every route above it.
         // Mapped inside this method rather than beside it so that Api:Enabled

@@ -10,7 +10,8 @@ public sealed record TimelineDto(
 public sealed record SessionDetailDto(
     SessionDto Session,
     IReadOnlyList<ActivityDto> Activities,
-    IReadOnlyList<CommitDto> Commits);
+    IReadOnlyList<CommitDto> Commits,
+    NarrativeDto? Narrative);
 
 /// <summary>An identity from <c>classification_rule</c> still awaiting a verdict.</summary>
 public sealed record PendingIdentityDto(string Identity, int Hits, int TotalSeconds);
@@ -54,6 +55,7 @@ public sealed record DigestDto(
     double InterruptionsPerActiveDay,
     LongestBlockDto? LongestBlock,
     BestDayDto? BestDay,
+    IReadOnlyList<DayStatDto> DailyBreakdown,
     IReadOnlyList<ProjectTimeDto> TimeByProject,
     IReadOnlyList<CategoryTimeDto> TimeByCategory,
     int UnattributedCodingSeconds,
@@ -82,6 +84,7 @@ public sealed record DigestDto(
         m.InterruptionsPerActiveDay,
         m.LongestBlock is { } lb ? new LongestBlockDto(lb.Start.ToLocalTime().ToString("O"), lb.End.ToLocalTime().ToString("O"), lb.Project, lb.DeepSeconds) : null,
         m.BestDay is { } bd ? new BestDayDto(bd.Date.ToString("O"), bd.DeepSeconds) : null,
+        [.. m.DailyBreakdown.Select(d => new DayStatDto(d.Date.ToString("O"), d.DeepSeconds, d.TrackedSeconds, d.CommitCount))],
         [.. m.TimeByProject.Select(p => new ProjectTimeDto(p.Project, p.Seconds))],
         [.. m.TimeByCategory.Select(c => new CategoryTimeDto(c.Category.ToString(), c.Seconds))],
         m.UnattributedCodingSeconds,
@@ -102,6 +105,8 @@ public sealed record DigestDto(
 public sealed record LongestBlockDto(string StartIso, string EndIso, string? Project, int DeepSeconds);
 
 public sealed record BestDayDto(string Date, int DeepSeconds);
+
+public sealed record DayStatDto(string Date, int DeepSeconds, int TrackedSeconds, int CommitCount);
 
 public sealed record ProjectTimeDto(string Project, int Seconds);
 
