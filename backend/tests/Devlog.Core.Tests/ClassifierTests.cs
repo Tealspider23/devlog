@@ -138,9 +138,9 @@ public class ClassifierTests
     [InlineData("Property for rent in Gachibowli", ActivityCategory.Personal)]
     [InlineData("IRCTC Next Generation eTicketing System", ActivityCategory.Personal)]
     [InlineData("Wordle - The New York Times", ActivityCategory.Distraction)]
-    [InlineData("Me | Timesheet", ActivityCategory.Other)]
-    [InlineData("Me | Expenses | Pending", ActivityCategory.Other)]
-    [InlineData("LaunchApps", ActivityCategory.Other)]
+    [InlineData("Me | Timesheet", ActivityCategory.Admin)]
+    [InlineData("Me | Expenses | Pending", ActivityCategory.Admin)]
+    [InlineData("LaunchApps", ActivityCategory.Admin)]
     [InlineData("Inbox - Amit Behera - Outlook", ActivityCategory.Communication)]
     public void BuiltinKeyword_AnswersWhatAProcessNameCannot(string title, ActivityCategory expected)
     {

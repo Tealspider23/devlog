@@ -36,7 +36,9 @@ public static class IdentityClassifierPrompt
           Meeting         calls and video meetings, which are not interruptible
           FileManagement  file explorers, moving and organising files
           Distraction     social media, entertainment, games, videos for fun
-          Personal        shopping, banking, travel, property, admin unrelated to work
+          Personal        shopping, banking, travel, property — personal life, not work
+          Admin           work admin that isn't a conversation or a call: timesheets,
+                          attendance, expenses, presentations, HR/intranet tools
           Other           genuinely none of the above, and you are confident of that
           Unknown         you cannot tell from the evidence given
 
@@ -50,8 +52,11 @@ public static class IdentityClassifierPrompt
           outside knowledge about what a website usually is if the titles contradict it.
         - A site can serve more than one purpose. If the sample titles disagree with each
           other, answer Unknown rather than picking the most common one.
-        - "Other" means you are confident it fits no category. It is not a synonym for
-          Unknown.
+        - Prefer a specific category over "Other" whenever one genuinely fits — Admin
+          exists precisely so ordinary work admin (timesheets, presentations, expense
+          reports) doesn't fall through to Other. "Other" means you looked and nothing
+          on the list fits, not "this is work but I didn't find its category." It is
+          not a synonym for Unknown either.
         - confidence is your own estimate from 0.0 to 1.0 that your category is correct.
         - reason is one short sentence citing what in the sample titles led you there.
 
@@ -74,7 +79,7 @@ public static class IdentityClassifierPrompt
                   "identity":   { "type": "string" },
                   "category":   { "type": "string",
                                   "enum": ["Coding","Learning","Communication","Meeting",
-                                           "FileManagement","Distraction","Personal",
+                                           "FileManagement","Distraction","Personal","Admin",
                                            "Other","Unknown"] },
                   "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
                   "reason":     { "type": "string" }

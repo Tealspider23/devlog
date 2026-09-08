@@ -6,7 +6,14 @@ namespace Devlog.Core.Domain;
 /// </summary>
 public enum ActivityCategory
 {
-    /// <summary>Unclassified. The honest default — never guessed silently.</summary>
+    /// <summary>
+    /// Unclassified — the derivation fallback before anything has answered an
+    /// identity, and never guessed silently. Also a genuine answer a human or
+    /// the classifier can give when nothing else fits, but that should be rare
+    /// now that <see cref="Admin"/> exists for ordinary work admin; see
+    /// GetUnclassifiedSecondsAsync, which sums this category regardless of why
+    /// a row carries it.
+    /// </summary>
     Other = 0,
 
     /// <summary>Editors, IDEs, terminals, PR review.</summary>
@@ -30,8 +37,17 @@ public enum ActivityCategory
     /// </summary>
     Distraction,
 
-    /// <summary>Shopping, banking, admin. Visible, but excluded from work totals.</summary>
-    Personal
+    /// <summary>Shopping, banking, personal errands. Visible, but excluded from work totals.</summary>
+    Personal,
+
+    /// <summary>
+    /// Real work that isn't coding, learning, chat or a call — timesheets,
+    /// attendance, expenses, presentations. Exists so "Other" stays a genuine
+    /// last resort rather than a dumping ground for anything work-shaped devlog
+    /// hasn't given a home to; see Classifier.BuiltinKeywordRules and
+    /// IdentityClassifierPrompt for what lands here.
+    /// </summary>
+    Admin
 }
 
 public static class ActivityCategoryExtensions

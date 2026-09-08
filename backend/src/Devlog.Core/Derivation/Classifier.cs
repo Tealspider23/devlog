@@ -121,15 +121,14 @@ public sealed class Classifier
         ("GitHub", ActivityCategory.Coding),
         ("Repository search", ActivityCategory.Coding),
 
-        // Work admin. Deliberately Other rather than forced into Communication:
-        // timesheets and attendance are work, but they are not talking to anyone.
-        // Worth revisiting if an Admin category is ever added.
-        ("Timesheet", ActivityCategory.Other),
-        ("Attendance", ActivityCategory.Other),
-        ("Employees Directory", ActivityCategory.Other),
-        ("Keka", ActivityCategory.Other),
-        ("Expenses", ActivityCategory.Other),
-        ("LaunchApps", ActivityCategory.Other),   // the intranet app launcher
+        // Work admin. Not Communication: timesheets and attendance are work,
+        // but they are not talking to anyone.
+        ("Timesheet", ActivityCategory.Admin),
+        ("Attendance", ActivityCategory.Admin),
+        ("Employees Directory", ActivityCategory.Admin),
+        ("Keka", ActivityCategory.Admin),
+        ("Expenses", ActivityCategory.Admin),
+        ("LaunchApps", ActivityCategory.Admin),   // the intranet app launcher
 
         // Outlook on the web. The desktop client is settled by process name;
         // in a browser it arrives as the identity "Outlook" with no process to
