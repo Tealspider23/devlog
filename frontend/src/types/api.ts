@@ -16,6 +16,7 @@ export type ActivityCategory =
   | 'FileManagement'
   | 'Distraction'
   | 'Personal'
+  | 'Admin'
 
 export interface SessionDto {
   id: number
@@ -76,6 +77,7 @@ export interface SessionDetailDto {
   session: SessionDto
   activities: ActivityDto[]
   commits: CommitDto[]
+  narrative: NarrativeDto | null
 }
 
 export interface GitScanResultDto {
@@ -108,6 +110,14 @@ export interface BestDayDto {
   deepSeconds: number
 }
 
+/** One calendar day's share of a digest range — the per-day bar on Week/Month. */
+export interface DayStatDto {
+  date: string
+  deepSeconds: number
+  trackedSeconds: number
+  commitCount: number
+}
+
 export interface ProjectTimeDto {
   project: string
   seconds: number
@@ -136,6 +146,7 @@ export interface DigestDto {
   interruptionsPerActiveDay: number
   longestBlock: LongestBlockDto | null
   bestDay: BestDayDto | null
+  dailyBreakdown: DayStatDto[]
   timeByProject: ProjectTimeDto[]
   timeByCategory: CategoryTimeDto[]
   /** Coding time that resolved to no repo — a browser tab, SSMS, a bare shell. Reported, never dropped. */
@@ -152,4 +163,92 @@ export interface DigestDto {
   unattachedCommitsInRange: number
   unclassifiedSeconds: number
   markdown: string
+}
+
+// ---------------------------------------------------------------------------
+// AI — mirrors Devlog.Api.Contracts.AiDto. See docs/LLM.md for what each job
+// sends and why "the model never computes a number" governs every one of
+// these shapes: AskResponseDto carries figures only by quoting them from
+// devlog's own data, never by producing them itself.
+// ---------------------------------------------------------------------------
+
+export interface AiStatusDto {
+  enabled: boolean
+  configuredModel: string
+  apiKeyPresent: boolean
+  jobClassifyEnabled: boolean
+  jobNarrateEnabled: boolean
+  jobDigestEnabled: boolean
+  jobAskEnabled: boolean
+  reachable: boolean
+  endpoint: string | null
+  offMachine: boolean | null
+  host: string | null
+}
+
+export interface AiModelsDto {
+  models: string[]
+}
+
+export interface AskRequestDto {
+  question: string
+  model?: string
+}
+
+export interface AskResponseDto {
+  success: boolean
+  answer: string | null
+  model: string | null
+  toolRounds: number
+  toolsUsed: string[]
+  unverifiedNumbers: string[]
+  error: string | null
+}
+
+/** `kind` — see docs/LLM.md section 5.4 for the full definition of each. */
+export type NarrativeKind =
+  | 'feature-work'
+  | 'bugfix'
+  | 'mr-review'
+  | 'research'
+  | 'meeting-followup'
+  | 'admin'
+  | 'context-thrash'
+  | 'unclear'
+
+export interface NarrativeDto {
+  sessionStart: string
+  sessionEnd: string
+  sessionId: number | null
+  narrative: string
+  kind: NarrativeKind
+  workstream: string | null
+  evidence: string[]
+  /** Model-reported, 0–1. Not a measurement — see lib/narrativeKinds.ts. */
+  confidence: number
+  model: string
+}
+
+export interface NarrateRequestDto {
+  since?: string
+  limit?: number
+  dryRun?: boolean
+  force?: boolean
+}
+
+export interface NarrateOutcomeDto {
+  sessionId: number
+  sessionStart: string
+  project: string | null
+  durationSeconds: number
+  accepted: boolean
+  narrative: NarrativeDto | null
+  rejectionReason: string | null
+}
+
+export interface NarrateResultDto {
+  dryRun: boolean
+  acceptedCount: number
+  rejectedCount: number
+  outcomes: NarrateOutcomeDto[]
 }

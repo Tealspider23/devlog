@@ -45,7 +45,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init,
       headers: { ...authHeaders(), ...init?.headers },
     })
-  } catch {
+  } catch (err) {
+    // A cancelled fetch rejects with this same catch — relabelling it as
+    // "collector not running" would be a lie the moment a caller passes a
+    // signal (Week/Month navigating away mid-fetch, for instance). Let an
+    // abort propagate as itself; TanStack Query already knows to stay quiet
+    // about it.
+    if (err instanceof DOMException && err.name === 'AbortError') throw err
     throw new CollectorUnreachableError()
   }
 
@@ -58,11 +64,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path),
-  post: <T>(path: string, body?: unknown) =>
+  get: <T>(path: string, signal?: AbortSignal) => request<T>(path, { signal }),
+  post: <T>(path: string, body?: unknown, signal?: AbortSignal) =>
     request<T>(path, {
       method: 'POST',
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
       body: body ? JSON.stringify(body) : undefined,
+      signal,
     }),
 }

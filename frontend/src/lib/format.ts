@@ -21,16 +21,25 @@ export function todayIso(): string {
 
 /** YYYY-MM-DD for a date N days before today, local calendar — the digest's default range. */
 export function daysAgoIso(n: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() - n)
+  return addDaysIso(todayIso(), -n)
+}
+
+/** `iso` shifted by `n` days (negative goes back), local calendar. */
+export function addDaysIso(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00`)
+  d.setDate(d.getDate() + n)
   return dateIso(d)
 }
 
-function dateIso(d: Date): string {
+export function dateIso(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-export function formatDateHeading(dateIso: string): string {
-  const d = new Date(`${dateIso}T00:00:00`)
+export function formatDateHeading(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`)
   return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })
+}
+
+export function formatPercent(ratio: number): string {
+  return `${Math.round(ratio * 100)}%`
 }

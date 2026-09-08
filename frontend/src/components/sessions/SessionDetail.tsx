@@ -2,10 +2,12 @@ import { useQuery } from '@tanstack/react-query'
 import { getSession } from '../../api/timeline'
 import { CATEGORY_LABEL } from '../../lib/categories'
 import { formatDuration, formatTime } from '../../lib/format'
+import { qk } from '../../lib/queryKeys'
+import { NarrativeCard } from '../narratives/NarrativeCard'
 
 export function SessionDetail({ sessionId }: { sessionId: number }) {
   const { data, isPending, isError } = useQuery({
-    queryKey: ['session', sessionId],
+    queryKey: qk.session(sessionId),
     queryFn: () => getSession(sessionId),
   })
 
@@ -17,7 +19,7 @@ export function SessionDetail({ sessionId }: { sessionId: number }) {
     return <div className="rounded-[var(--radius-card)] border border-line bg-surface p-4 text-sm text-warn">Could not load this session.</div>
   }
 
-  const { session, activities, commits } = data
+  const { session, activities, commits, narrative } = data
 
   return (
     <div className="flex flex-col gap-4 rounded-[var(--radius-card)] border border-line bg-surface p-4">
@@ -33,6 +35,12 @@ export function SessionDetail({ sessionId }: { sessionId: number }) {
           {session.interruptions === 1 ? '' : 's'}
         </span>
       </div>
+
+      {narrative && (
+        <div className="border-b border-line pb-4">
+          <NarrativeCard narrative={narrative} variant="inline" />
+        </div>
+      )}
 
       {commits.length > 0 ? (
         <div className="flex flex-col gap-1.5">

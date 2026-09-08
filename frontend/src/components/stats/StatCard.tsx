@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Card } from '../common/Card'
 
 /**
  * Four of these, always: Deep work, Sessions, Shipped, Context switches.
@@ -18,11 +19,11 @@ export function StatCard({
   children?: ReactNode
 }) {
   return (
-    <div className="flex flex-col gap-2 rounded-[var(--radius-card)] border border-line bg-surface p-4">
+    <Card className="flex flex-col gap-2 p-4">
       <span className="text-xs text-faint">{label}</span>
       <span className="text-2xl font-semibold text-ink">{value}</span>
       {caption && <span className="text-xs text-muted">{caption}</span>}
       {children}
-    </div>
+    </Card>
   )
 }

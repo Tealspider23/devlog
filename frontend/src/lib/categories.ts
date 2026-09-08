@@ -14,6 +14,7 @@ export const CATEGORY_COLOR: Record<ActivityCategory, string> = {
   FileManagement: '#94a3b8',
   Distraction: '#ff8c42',
   Personal: '#fbbf24',
+  Admin: '#2dd4bf',
   Other: '#3f3f46',
 }
 
@@ -25,6 +26,7 @@ export const CATEGORY_LABEL: Record<ActivityCategory, string> = {
   FileManagement: 'Files',
   Distraction: 'Distraction',
   Personal: 'Personal',
+  Admin: 'Admin',
   Other: 'Unclassified',
 }
 

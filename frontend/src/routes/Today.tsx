@@ -3,21 +3,25 @@ import { useState } from 'react'
 import { derive, getTimeline, scanGit } from '../api/timeline'
 import { SessionDetail } from '../components/sessions/SessionDetail'
 import { StatCard } from '../components/stats/StatCard'
-import { TopBar } from '../components/shell/TopBar'
+import { PageHeader } from '../components/shell/PageHeader'
+import { PillButton } from '../components/common/PillButton'
+import { Skeleton } from '../components/common/Skeleton'
 import { TimelineStrip } from '../components/timeline/TimelineStrip'
 import { EmptyState } from '../components/common/EmptyState'
 import { ErrorState } from '../components/common/ErrorState'
-import { formatDuration, formatHours, todayIso } from '../lib/format'
+import { qk } from '../lib/queryKeys'
+import { addDaysIso, formatDateHeading, formatDuration, formatHours, todayIso } from '../lib/format'
 
 export function Today() {
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  const dateIso = todayIso()
+  const [dateIso, setDateIso] = useState(todayIso())
+  const isToday = dateIso === todayIso()
 
   // Derive-then-fetch as one query: derivation is idempotent and ~160ms
   // measured, so the page can simply always be current rather than showing
   // stale derived data with a separate "refresh" step to remember.
   const { data, isPending, isError, error, isRefetching, refetch } = useQuery({
-    queryKey: ['timeline', dateIso],
+    queryKey: qk.timeline(dateIso),
     queryFn: async () => {
       await derive()
       return getTimeline(dateIso)
@@ -38,11 +42,38 @@ export function Today() {
 
   const onRefresh = () => scanAndRefresh.mutate()
 
+  const goToDay = (next: string) => {
+    setSelectedId(null)
+    setDateIso(next)
+  }
+
+  const actions = (
+    <>
+      <PillButton onClick={() => goToDay(addDaysIso(dateIso, -1))} title="Previous day">
+        ‹
+      </PillButton>
+      <PillButton onClick={() => goToDay(addDaysIso(dateIso, 1))} disabled={isToday} title="Next day">
+        ›
+      </PillButton>
+      <PillButton
+        onClick={onRefresh}
+        disabled={busyLabel !== null}
+        className="border-line bg-raised px-4 py-2"
+      >
+        {busyLabel ?? 'Refresh'}
+      </PillButton>
+    </>
+  )
+
   if (isPending) {
     return (
       <div className="flex flex-col gap-6">
-        <TopBar dateIso={dateIso} busyLabel="Loading…" onRefresh={onRefresh} />
-        <div className="animate-pulse rounded-[var(--radius-card)] border border-line bg-surface py-16" />
+        <PageHeader
+          title={formatDateHeading(dateIso)}
+          subtitle="what you attended to, against what you shipped"
+          actions={actions}
+        />
+        <Skeleton />
       </div>
     )
   }
@@ -50,7 +81,11 @@ export function Today() {
   if (isError) {
     return (
       <div className="flex flex-col gap-6">
-        <TopBar dateIso={dateIso} busyLabel={busyLabel} onRefresh={onRefresh} />
+        <PageHeader
+          title={formatDateHeading(dateIso)}
+          subtitle="what you attended to, against what you shipped"
+          actions={actions}
+        />
         <ErrorState error={error} onRetry={() => refetch()} />
       </div>
     )
@@ -66,12 +101,20 @@ export function Today() {
 
   return (
     <div className="flex flex-col gap-6">
-      <TopBar dateIso={dateIso} busyLabel={busyLabel} onRefresh={onRefresh} />
+      <PageHeader
+        title={formatDateHeading(dateIso)}
+        subtitle="what you attended to, against what you shipped"
+        actions={actions}
+      />
 
       {sessions.length === 0 ? (
         <EmptyState
-          title="Nothing tracked yet today."
-          detail="The collector records as you work — check back once you've switched windows a few times."
+          title={isToday ? 'Nothing tracked yet today.' : 'Nothing tracked on this day.'}
+          detail={
+            isToday
+              ? "The collector records as you work — check back once you've switched windows a few times."
+              : undefined
+          }
         />
       ) : (
         <>

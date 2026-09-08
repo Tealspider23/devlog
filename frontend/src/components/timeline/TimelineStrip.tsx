@@ -10,6 +10,7 @@ const LEGEND_ORDER: ActivityCategory[] = [
   'Communication',
   'Meeting',
   'Personal',
+  'Admin',
   'Distraction',
   'FileManagement',
   'Other',
