@@ -10,13 +10,17 @@ namespace Devlog.Host.Ai;
 /// Job A: Identity classification runner.
 /// Selects top pending identities by duration, pulls representative sample titles,
 /// requests categorization from the LLM, and writes accepted verdicts to the rule store.
+/// Does no I/O of its own beyond the rule store and the model — see
+/// <c>DiagnosticCommands.ClassifyAi</c> for the console renderer, and
+/// <c>POST /v1/classify-ai</c> for the JSON one. Same "one result, two
+/// renderers" split as <see cref="NarrateRunner"/>.
 /// </summary>
 public sealed class ClassifyAiRunner(
     IClassificationRuleStore ruleStore,
     IChatClient chatClient,
-    AiOptions options)
+    AiOptions options) : IClassifyAiRunner
 {
-    public async Task<int> RunAsync(bool dryRun, int? limitOverride, CancellationToken ct = default)
+    public async Task<ClassifyAiResult> RunAsync(bool dryRun, int? limitOverride, CancellationToken ct = default)
     {
         var rules = await ruleStore.GetAllAsync(ct).ConfigureAwait(false);
 
@@ -30,8 +34,7 @@ public sealed class ClassifyAiRunner(
 
         if (allPending.Count == 0)
         {
-            Console.WriteLine("\nNothing pending — every identity seen so far has a verdict.\n");
-            return 0;
+            return new ClassifyAiResult(dryRun, true, 0, 0, 0, [], [], null);
         }
 
         var limit = limitOverride ?? options.ClassifyBatchSize;
@@ -55,8 +58,8 @@ public sealed class ClassifyAiRunner(
 
         if (!chatResult.Reachable || string.IsNullOrWhiteSpace(chatResult.Content))
         {
-            Console.WriteLine($"\nclassifier unreachable, {allPending.Count} identities still pending: {chatResult.Error ?? "no response"}\n");
-            return 0;
+            var reason = $"classifier unreachable, {allPending.Count} identities still pending: {chatResult.Error ?? "no response"}";
+            return new ClassifyAiResult(dryRun, false, 0, 0, allPending.Count, [], [], reason);
         }
 
         List<ValidatedVerdict> verdicts;
@@ -71,14 +74,12 @@ public sealed class ClassifyAiRunner(
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"\nMalformed JSON from classifier ({ex.Message}), {allPending.Count} identities still pending.\n");
-            return 0;
+            var reason = $"Malformed JSON from classifier ({ex.Message}), {allPending.Count} identities still pending.";
+            return new ClassifyAiResult(dryRun, true, 0, 0, allPending.Count, [], [], reason);
         }
 
-        var mode = dryRun ? "PROPOSED VERDICTS (--dry-run, no database writes)" : "CLASSIFIED VERDICTS";
-        Console.WriteLine($"\n=== {mode} ===\n");
-
         var nowUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var outcomes = new List<ClassifyAiVerdictOutcome>(verdicts.Count);
         foreach (var v in verdicts)
         {
             if (!dryRun)
@@ -92,33 +93,10 @@ public sealed class ClassifyAiRunner(
                     ct).ConfigureAwait(false);
             }
 
-            Console.WriteLine($"  {v.Identity,-30} => {v.Category,-15} (confidence: {v.Confidence:F2}) — {v.Reason}");
-        }
-
-        if (discards.Count > 0)
-        {
-            Console.WriteLine();
-            foreach (var d in discards)
-            {
-                Console.WriteLine($"  [skipped] {d}");
-            }
+            outcomes.Add(new ClassifyAiVerdictOutcome(v.Identity, v.Category, v.Confidence, v.Reason));
         }
 
         var totalRemaining = allPending.Count - (dryRun ? 0 : verdicts.Count);
-        Console.WriteLine($"""
-
-              {verdicts.Count} processed, {discards.Count} skipped/pending, {totalRemaining} total pending remaining.
-            """);
-
-        if (!dryRun && verdicts.Count > 0)
-        {
-            Console.WriteLine("  Run `devlog derive` to apply newly classified identities to existing sessions.\n");
-        }
-        else
-        {
-            Console.WriteLine();
-        }
-
-        return 0;
+        return new ClassifyAiResult(dryRun, true, verdicts.Count, discards.Count, totalRemaining, outcomes, discards, null);
     }
 }

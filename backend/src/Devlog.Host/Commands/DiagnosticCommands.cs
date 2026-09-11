@@ -660,6 +660,13 @@ public static class DiagnosticCommands
         return 0;
     }
 
+    /// <summary>
+    /// Renders <see cref="ClassifyAiResult"/> to the console. The runner itself
+    /// does no I/O — same "one result, two renderers" discipline as
+    /// <see cref="Narrate"/> — so this is the only place <c>devlog classify-ai</c>'s
+    /// output is composed, and <c>POST /v1/classify-ai</c> renders the identical
+    /// result as JSON instead.
+    /// </summary>
     private static int ClassifyAi(IHost host, CommandLine cli)
     {
         CommandLine.TrySetUtf8Console();
@@ -668,7 +675,52 @@ public static class DiagnosticCommands
         var dryRun = cli.Has("--dry-run");
 
         var runner = host.Services.GetRequiredService<ClassifyAiRunner>();
-        return runner.RunAsync(dryRun, limit).GetAwaiter().GetResult();
+        var result = runner.RunAsync(dryRun, limit).GetAwaiter().GetResult();
+
+        if (result.UnreachableReason is not null)
+        {
+            Console.WriteLine($"\n{result.UnreachableReason}\n");
+            return 0;
+        }
+
+        if (result.Verdicts.Count == 0 && result.TotalPendingRemaining == 0)
+        {
+            Console.WriteLine("\nNothing pending — every identity seen so far has a verdict.\n");
+            return 0;
+        }
+
+        var mode = result.DryRun ? "PROPOSED VERDICTS (--dry-run, no database writes)" : "CLASSIFIED VERDICTS";
+        Console.WriteLine($"\n=== {mode} ===\n");
+
+        foreach (var v in result.Verdicts)
+        {
+            Console.WriteLine($"  {v.Identity,-30} => {v.Category,-15} (confidence: {v.Confidence:F2}) — {v.Reason}");
+        }
+
+        if (result.Discards.Count > 0)
+        {
+            Console.WriteLine();
+            foreach (var d in result.Discards)
+            {
+                Console.WriteLine($"  [skipped] {d}");
+            }
+        }
+
+        Console.WriteLine($"""
+
+              {result.ProcessedCount} processed, {result.SkippedCount} skipped/pending, {result.TotalPendingRemaining} total pending remaining.
+            """);
+
+        if (!result.DryRun && result.ProcessedCount > 0)
+        {
+            Console.WriteLine("  Run `devlog derive` to apply newly classified identities to existing sessions.\n");
+        }
+        else
+        {
+            Console.WriteLine();
+        }
+
+        return 0;
     }
 
     /// <summary>

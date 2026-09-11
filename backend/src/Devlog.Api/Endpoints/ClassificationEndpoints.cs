@@ -13,6 +13,7 @@ public static class ClassificationEndpoints
     {
         group.MapGet("/unknowns", GetUnknowns);
         group.MapPost("/classify", PostClassify);
+        group.MapPost("/classify-ai", PostClassifyAi);
         return group;
     }
 
@@ -59,5 +60,19 @@ public static class ClassificationEndpoints
             ct);
 
         return Results.Ok(new ClassifyResponse(request.Identity, category.ToString(), promoted));
+    }
+
+    /// <summary>
+    /// The LLM-verdict path — called from Today's Refresh chain, folded in
+    /// rather than a standalone button (see WeeklyWinRunner/NarrateButton for
+    /// the contrasting case: a standalone, unbounded action needs its own
+    /// preflight; this one rides an already-deliberate Refresh click).
+    /// <c>DryRun</c> defaults to <c>false</c> — Refresh wants live writes, and
+    /// a dry-run default would make every click silently do nothing.
+    /// </summary>
+    private static async Task<IResult> PostClassifyAi(ClassifyAiRequestDto request, IClassifyAiRunner runner, CancellationToken ct)
+    {
+        var result = await runner.RunAsync(request.DryRun ?? false, request.Limit, ct);
+        return Results.Ok(ClassifyAiResultDto.From(result));
     }
 }

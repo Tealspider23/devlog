@@ -1,3 +1,5 @@
+using Devlog.Core.Ai;
+
 namespace Devlog.Api.Contracts;
 
 /// <summary>One day's picture: the sessions in it, the commits in it, and what is still unanswered.</summary>
@@ -20,6 +22,32 @@ public sealed record PendingIdentityDto(string Identity, int Hits, int TotalSeco
 public sealed record ClassifyRequest(string Identity, string Category, string? Keyword);
 
 public sealed record ClassifyResponse(string Identity, string Category, bool PromotedToMixed);
+
+/// <summary>Body of <c>POST /v1/classify-ai</c> — the LLM-verdict path, distinct from the manual <see cref="ClassifyRequest"/> above.</summary>
+public sealed record ClassifyAiRequestDto(bool? DryRun, int? Limit);
+
+public sealed record ClassifyAiVerdictOutcomeDto(string Identity, string Category, double Confidence, string Reason);
+
+public sealed record ClassifyAiResultDto(
+    bool DryRun,
+    bool Reachable,
+    int ProcessedCount,
+    int SkippedCount,
+    int TotalPendingRemaining,
+    IReadOnlyList<ClassifyAiVerdictOutcomeDto> Verdicts,
+    IReadOnlyList<string> Discards,
+    string? UnreachableReason)
+{
+    public static ClassifyAiResultDto From(ClassifyAiResult r) => new(
+        r.DryRun,
+        r.Reachable,
+        r.ProcessedCount,
+        r.SkippedCount,
+        r.TotalPendingRemaining,
+        [.. r.Verdicts.Select(v => new ClassifyAiVerdictOutcomeDto(v.Identity, v.Category.ToString(), v.Confidence, v.Reason))],
+        r.Discards,
+        r.UnreachableReason);
+}
 
 /// <summary>Mirrors <c>DerivationResult</c> for <c>POST /v1/derive</c>.</summary>
 public sealed record DeriveResultDto(

@@ -3,9 +3,14 @@ import type {
   AiModelsDto,
   AiStatusDto,
   AskResponseDto,
+  ClassifyAiRequestDto,
+  ClassifyAiResultDto,
   NarrateRequestDto,
   NarrateResultDto,
   NarrativeDto,
+  WeeklyWinDto,
+  WeeklyWinsRequestDto,
+  WeeklyWinsResultDto,
 } from '../types/api'
 
 /** Runs a live provider probe (up to two endpoints, 10s connect timeout) — not a cheap read, see hooks/useAiStatus.ts. */
@@ -40,4 +45,29 @@ export function getNarratives(fromIso: string, toIso: string, signal?: AbortSign
  */
 export function narrate(req: NarrateRequestDto = {}): Promise<NarrateResultDto> {
   return api.post<NarrateResultDto>('/v1/narrate', req)
+}
+
+/** A plain read of whichever weeks already have a stored win — no model call, mirrors `getNarratives`. */
+export function getWeeklyWins(fromIso: string, toIso: string, signal?: AbortSignal): Promise<WeeklyWinDto[]> {
+  return api.get<WeeklyWinDto[]>(`/v1/weekly-wins?from=${fromIso}&to=${toIso}`, signal)
+}
+
+/**
+ * One model call per week that has narratives and isn't already up to date,
+ * run once per press. Ships that week's narrative text to the provider.
+ * Never pass a signal — see `ask` above; the model calls already issued
+ * can't be cancelled by aborting fetch.
+ */
+export function generateWeeklyWins(req: WeeklyWinsRequestDto): Promise<WeeklyWinsResultDto> {
+  return api.post<WeeklyWinsResultDto>('/v1/weekly-wins', req)
+}
+
+/**
+ * Folded into Today's Refresh, not a standalone action — see Today.tsx. One
+ * bounded model call, so no preflight disclosure of its own; Refresh already
+ * carries that weight. `req = {}` defaults to live writes with the server's
+ * own batch size, same empty-body-is-safe pattern as `narrate`.
+ */
+export function classifyAi(req: ClassifyAiRequestDto = {}): Promise<ClassifyAiResultDto> {
+  return api.post<ClassifyAiResultDto>('/v1/classify-ai', req)
 }

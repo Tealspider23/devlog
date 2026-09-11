@@ -252,3 +252,54 @@ export interface NarrateResultDto {
   rejectedCount: number
   outcomes: NarrateOutcomeDto[]
 }
+
+export interface WeeklyWinsRequestDto {
+  from: string
+  to: string
+  force?: boolean
+}
+
+export interface WeeklyWinDto {
+  weekFrom: string
+  weekTo: string
+  summary: string
+  /** Point-wise genuine wins for the week — the model's evidence-backed highlights, not generic notes. */
+  highlights: string[]
+  model: string
+}
+
+export interface WeekOutcomeDto {
+  weekFrom: string
+  weekTo: string
+  accepted: boolean
+  skippedAsUpToDate: boolean
+  win: WeeklyWinDto | null
+  rejectionReason: string | null
+}
+
+export interface WeeklyWinsResultDto {
+  weeks: WeekOutcomeDto[]
+}
+
+export interface ClassifyAiRequestDto {
+  dryRun?: boolean
+  limit?: number
+}
+
+export interface ClassifyAiVerdictOutcomeDto {
+  identity: string
+  category: ActivityCategory
+  confidence: number
+  reason: string
+}
+
+export interface ClassifyAiResultDto {
+  dryRun: boolean
+  reachable: boolean
+  processedCount: number
+  skippedCount: number
+  totalPendingRemaining: number
+  verdicts: ClassifyAiVerdictOutcomeDto[]
+  discards: string[]
+  unreachableReason: string | null
+}

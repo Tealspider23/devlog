@@ -1,6 +1,7 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { derive, getTimeline, scanGit } from '../api/timeline'
+import { classifyAi } from '../api/ai'
 import { SessionDetail } from '../components/sessions/SessionDetail'
 import { StatCard } from '../components/stats/StatCard'
 import { PageHeader } from '../components/shell/PageHeader'
@@ -29,16 +30,34 @@ export function Today() {
   })
 
   // The Refresh button's full pipeline: walk every configured repo for new
-  // commits, then let the timeline query's own refetch re-derive (so those
-  // commits attach to sessions) and re-fetch. scanGit is deliberately not
-  // part of the automatic load-time query above — it hits disk across every
-  // repo and is too slow to run on every page load.
+  // commits, then classify any pending identities the scan may have surfaced,
+  // then let the timeline query's own refetch re-derive (so those commits and
+  // classifications attach to sessions) and re-fetch. Neither scanGit nor
+  // classifyAi is part of the automatic load-time query above — scanGit hits
+  // disk across every repo, and classifyAi is a model call; both are too slow
+  // and too costly to run on every page load. classify-ai gets no preflight
+  // dialog of its own (unlike NarrateButton/WeeklyWinList): Refresh is already
+  // a deliberate, repeatable action the user opts into, and one bounded call
+  // folded into it doesn't cross the bar that exists for standalone,
+  // newly-initiated AI actions.
+  const [subStep, setSubStep] = useState<'scanning' | 'classifying' | null>(null)
   const scanAndRefresh = useMutation({
-    mutationFn: scanGit,
+    mutationFn: async () => {
+      try {
+        setSubStep('scanning')
+        await scanGit()
+        setSubStep('classifying')
+        return await classifyAi()
+      } finally {
+        // Always clear, including on failure — otherwise a scanGit/classifyAi
+        // error leaves subStep stuck and the Refresh button disabled forever.
+        setSubStep(null)
+      }
+    },
     onSuccess: () => refetch(),
   })
 
-  const busyLabel = scanAndRefresh.isPending ? 'Scanning git…' : isRefetching ? 'Deriving…' : null
+  const busyLabel = subStep === 'scanning' ? 'Scanning git…' : subStep === 'classifying' ? 'Classifying…' : isRefetching ? 'Deriving…' : null
 
   const onRefresh = () => scanAndRefresh.mutate()
 
@@ -124,7 +143,15 @@ export function Today() {
             <StatCard
               label="Shipped"
               value={String(commitCount)}
-              caption={commitCount > 0 ? `+${insertions}/-${deletions}` : undefined}
+              captionNode={
+                commitCount > 0 ? (
+                  <span className="text-xs">
+                    <span style={{ color: 'var(--color-positive)' }}>+{insertions}</span>
+                    {'/'}
+                    <span style={{ color: 'var(--color-negative)' }}>-{deletions}</span>
+                  </span>
+                ) : undefined
+              }
             />
             <StatCard label="Interruptions" value={String(interruptions)} />
           </div>
