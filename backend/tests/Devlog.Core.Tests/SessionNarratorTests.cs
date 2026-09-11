@@ -170,7 +170,7 @@ public class SessionNarratorTests
         var responseJson = """
         {
           "sessionId": 412,
-          "narrative": "Reviewed merge request !59 and fixed the login redirect loop in orderbook-api.",
+          "narrative": "Reviewed merge request !59 in GitLab. Fixed the login redirect loop in orderbook-api and committed the change.",
           "kind": "mr-review",
           "workstream": "US-1569",
           "evidence": [
@@ -232,7 +232,7 @@ public class SessionNarratorTests
         var responseJson = """
         {
           "sessionId": 412,
-          "narrative": "Uncertain work.",
+          "narrative": "Worked in AuthController.cs. The change was uncertain.",
           "kind": "feature-work",
           "workstream": null,
           "evidence": ["AuthController.cs", "GitLab"],
@@ -368,7 +368,7 @@ public class SessionNarratorTests
           "narratives": [
             {
               "sessionId": 500,
-              "narrative": "Worked on billing-service.",
+              "narrative": "Worked on billing-service. Made progress in AuthController.cs.",
               "kind": "feature-work",
               "workstream": null,
               "evidence": ["AuthController.cs", "GitLab"],
@@ -376,7 +376,7 @@ public class SessionNarratorTests
             },
             {
               "sessionId": 412,
-              "narrative": "Reviewed merge request !59 and fixed the login redirect loop in orderbook-api.",
+              "narrative": "Reviewed merge request !59 in GitLab. Fixed the login redirect loop in orderbook-api.",
               "kind": "mr-review",
               "workstream": "US-1569",
               "evidence": ["Merge request !59 in GitLab", "Edited AuthController.cs in orderbook-api"],
@@ -412,7 +412,7 @@ public class SessionNarratorTests
           "narratives": [
             {
               "sessionId": 412,
-              "narrative": "Reviewed merge request !59 and fixed the login redirect loop in orderbook-api.",
+              "narrative": "Reviewed merge request !59 in GitLab. Fixed the login redirect loop in orderbook-api.",
               "kind": "mr-review",
               "workstream": "US-1569",
               "evidence": ["Merge request !59 in GitLab", "Edited AuthController.cs in orderbook-api"],
@@ -441,7 +441,7 @@ public class SessionNarratorTests
           "narratives": [
             {
               "sessionId": 412,
-              "narrative": "Something vague happened.",
+              "narrative": "Something vague happened. It was not clear what it involved.",
               "kind": "feature-work",
               "workstream": null,
               "evidence": ["Nonexistent Thing One", "Completely Invented Reference"],
@@ -481,5 +481,87 @@ public class SessionNarratorTests
 
         Assert.False(result.IsAccepted);
         Assert.Contains("Invalid kind", result.RejectionReason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void ValidateAndParse_RejectsSingleSentenceNarrative_ForNonExemptKind()
+    {
+        var summary = CreateSummary();
+        var activities = CreateActivities();
+        var commits = CreateCommits();
+
+        var responseJson = """
+        {
+          "sessionId": 412,
+          "narrative": "Fixed the login redirect loop in orderbook-api.",
+          "kind": "bugfix",
+          "workstream": null,
+          "evidence": ["AuthController.cs", "GitLab"],
+          "confidence": 0.90
+        }
+        """;
+
+        var result = SessionNarratorPrompt.ValidateAndParse(
+            responseJson, summary, activities, commits, 0.60, "gpt-oss:20b", 1725257000000);
+
+        Assert.False(result.IsAccepted);
+        Assert.Contains("fewer than two sentences", result.RejectionReason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The same exemption reasoning as the confidence floor above: an "unclear"
+    /// verdict is exactly the case where a single honest sentence is correct and
+    /// padding to two would mean inventing content.
+    /// </summary>
+    [Fact]
+    public void ValidateAndParse_AcceptsSingleSentence_ForUnclearKind()
+    {
+        var summary = CreateSummary();
+        var activities = CreateActivities();
+        var commits = CreateCommits();
+
+        var responseJson = """
+        {
+          "sessionId": 412,
+          "narrative": "Scattered activity with no single thread.",
+          "kind": "unclear",
+          "workstream": null,
+          "evidence": ["AuthController.cs", "GitLab"],
+          "confidence": 0.40
+        }
+        """;
+
+        var result = SessionNarratorPrompt.ValidateAndParse(
+            responseJson, summary, activities, commits, 0.60, "gpt-oss:20b", 1725257000000);
+
+        Assert.True(result.IsAccepted);
+    }
+
+    [Fact]
+    public void ValidateAndParse_DoesNotMiscountADecimal_AsASentenceBoundary()
+    {
+        var summary = CreateSummary();
+        var activities = CreateActivities();
+        var commits = CreateCommits();
+
+        // One real sentence containing a mid-sentence decimal - "3.5" must not be
+        // counted as a sentence boundary (no whitespace follows the period), so
+        // this must still be rejected as a single sentence, not accepted as two.
+        var responseJson = """
+        {
+          "sessionId": 412,
+          "narrative": "Upgraded the dependency from 3.5 to the latest version in orderbook-api.",
+          "kind": "bugfix",
+          "workstream": null,
+          "evidence": ["AuthController.cs", "GitLab"],
+          "confidence": 0.90
+        }
+        """;
+
+        var result = SessionNarratorPrompt.ValidateAndParse(
+            responseJson, summary, activities, commits, 0.60, "gpt-oss:20b", 1725257000000);
+
+        Assert.False(result.IsAccepted);
+        Assert.Contains("fewer than two sentences", result.RejectionReason, StringComparison.OrdinalIgnoreCase);
     }
 }

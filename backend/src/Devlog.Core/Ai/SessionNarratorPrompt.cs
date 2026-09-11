@@ -14,7 +14,7 @@ public sealed record SessionNarrationInput(
 /// <summary>
 /// Job B: Session narrative prompt, input assembler, JSON schema, and evidence validator.
 /// </summary>
-public static class SessionNarratorPrompt
+public static partial class SessionNarratorPrompt
 {
     public const string SchemaName = "session_narrative";
     public const string BatchSchemaName = "session_narratives_batch";
@@ -49,9 +49,9 @@ public static class SessionNarratorPrompt
 
         Produce:
 
-        - narrative: one or two sentences, past tense, plain and specific. Describe what
-          happened, in order, as a colleague would explain it. Do not editorialise about
-          productivity, focus or effort.
+        - narrative: exactly two sentences, past tense, plain and specific. The first
+          sentence sets up what was worked on, the second what happened or resulted. Do
+          not editorialise about productivity, focus or effort.
         - kind: exactly one of
             feature-work        building something new
             bugfix              diagnosing or fixing a defect
@@ -72,6 +72,9 @@ public static class SessionNarratorPrompt
         - Every claim in the narrative must be supported by something in the input. You
           may connect events in sequence - that is the point of this task - but you may
           not introduce facts that are not there.
+        - If you cannot support a genuine second sentence with evidence, do not pad -
+          write one honest sentence instead. "unclear" and "context-thrash" answers are
+          exempt from the two-sentence requirement for exactly this reason.
         - Each evidence string must refer to content present in the input. If you cannot
           produce two pieces of real evidence, answer kind "unclear" with low confidence.
         - "context-thrash" and "unclear" are correct answers. A scattered session is a
@@ -125,9 +128,9 @@ public static class SessionNarratorPrompt
         Answer once per session, in the same order they are given, each keyed by its
         sessionId. Produce for each:
 
-        - narrative: one or two sentences, past tense, plain and specific. Describe what
-          happened, in order, as a colleague would explain it. Do not editorialise about
-          productivity, focus or effort.
+        - narrative: exactly two sentences, past tense, plain and specific. The first
+          sentence sets up what was worked on, the second what happened or resulted. Do
+          not editorialise about productivity, focus or effort.
         - kind: exactly one of
             feature-work        building something new
             bugfix              diagnosing or fixing a defect
@@ -149,6 +152,9 @@ public static class SessionNarratorPrompt
           of this task - but you may not introduce facts that are not there, and you may
           not use evidence or facts from a different session in this batch to support
           this one. Each session is its own closed world.
+        - If you cannot support a genuine second sentence with evidence, do not pad -
+          write one honest sentence instead. "unclear" and "context-thrash" answers are
+          exempt from the two-sentence requirement for exactly this reason.
         - Each evidence string must refer to content present in that same session's
           input. If you cannot produce two pieces of real evidence for a session, answer
           that session's kind "unclear" with low confidence.
@@ -364,22 +370,28 @@ public static class SessionNarratorPrompt
             return SessionNarrativeResult.Rejected($"Invalid kind '{kind}'");
         }
 
+        // "unclear"/"context-thrash" are self-reported uncertainty, exempt from both
+        // the confidence floor below and the two-sentence check above it: forcing a
+        // genuinely scattered or unreadable session to pad to two sentences (or to a
+        // confidence it does not have) is exactly what the prompt tells the model not
+        // to do. Without this exemption the honest low-confidence/short answer could
+        // never reach the database - only a confident, padded one could survive - and
+        // the session would be silently re-asked from scratch on every later run.
+        // Evidence and evidence-count still apply below regardless - this is not a
+        // bypass for fabrication, only for the length and confidence floors.
+        var isSelfReportedUncertain = string.Equals(kind, "unclear", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(kind, "context-thrash", StringComparison.OrdinalIgnoreCase);
+
+        if (!isSelfReportedUncertain && CountSentences(narrative) < 2)
+        {
+            return SessionNarrativeResult.Rejected("Narrative has fewer than two sentences");
+        }
+
         var workstream = root.TryGetProperty("workstream", out var wsProp) && wsProp.ValueKind == JsonValueKind.String
             ? wsProp.GetString()
             : null;
 
         var confidence = root.TryGetProperty("confidence", out var confProp) ? confProp.GetDouble() : 0.0;
-
-        // The prompt tells the model to answer "unclear" WITH LOW CONFIDENCE when
-        // it cannot support two evidence items - then this gate rejected exactly
-        // that answer, which meant "unclear" and "context-thrash" could never
-        // reach the database: the honest low-confidence case and the confident
-        // case were both being asked for, but only the confident one could
-        // survive. The session was silently re-asked from scratch on every later
-        // run. Evidence and evidence-count still apply below - low confidence is
-        // not a bypass for fabrication, only for the confidence floor itself.
-        var isSelfReportedUncertain = string.Equals(kind, "unclear", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(kind, "context-thrash", StringComparison.OrdinalIgnoreCase);
 
         if (confidence < minConfidence && !isSelfReportedUncertain)
         {
@@ -426,6 +438,21 @@ public static class SessionNarratorPrompt
 
         return SessionNarrativeResult.Accepted(validNarrative);
     }
+
+    /// <summary>
+    /// Counts sentence-ending punctuation in a trimmed narrative, as a proxy for
+    /// "two sentences" per docs/LLM.md section 5.6a. A terminator only counts when
+    /// followed by whitespace or the end of the string, so a decimal like "3.5"
+    /// does not inflate the count. This is a cheap heuristic, not a parser: an
+    /// abbreviation like "e.g." followed by a space still counts as a boundary,
+    /// same as a real sentence would - accepted as a false positive rather than
+    /// building real sentence detection for a floor this loose.
+    /// </summary>
+    private static int CountSentences(string narrative) =>
+        SentenceTerminatorRegex().Matches(narrative.Trim()).Count;
+
+    [GeneratedRegex(@"[.!?]+(?=\s|$)")]
+    private static partial Regex SentenceTerminatorRegex();
 
     /// <summary>
     /// Hallucination detector per docs/LLM.md section 5.6.
