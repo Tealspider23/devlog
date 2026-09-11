@@ -1,6 +1,7 @@
 import { Sidebar } from './components/shell/Sidebar'
 import { Today } from './routes/Today'
 import { Range } from './routes/Range'
+import { Brag } from './routes/Brag'
 import { Chat } from './routes/Chat'
 import { Settings } from './routes/Settings'
 import { useHashRoute } from './lib/routes'
@@ -19,6 +20,7 @@ export function App() {
         {route === 'today' && <Today />}
         {route === 'week' && <Range key="week" kind="week" />}
         {route === 'month' && <Range key="month" kind="month" />}
+        {route === 'brag' && <Brag />}
         {route === 'chat' && <Chat />}
         {route === 'settings' && <Settings />}
       </main>

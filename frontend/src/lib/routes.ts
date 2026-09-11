@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 
-export const ROUTES = ['today', 'week', 'month', 'chat', 'settings'] as const
+export const ROUTES = ['today', 'week', 'month', 'brag', 'chat', 'settings'] as const
 export type Route = (typeof ROUTES)[number]
 
 export const ROUTE_LABEL: Record<Route, string> = {
   today: 'Today',
   week: 'Week',
   month: 'Month',
+  brag: 'Brag Document',
   chat: 'Chat',
   settings: 'Settings',
 }

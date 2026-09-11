@@ -1,6 +1,6 @@
 import { ROUTE_LABEL, type Route } from '../../lib/routes'
 
-const PRIMARY: Route[] = ['today', 'week', 'month', 'chat']
+const PRIMARY: Route[] = ['today', 'week', 'month', 'brag', 'chat']
 const FOOTER: Route[] = ['settings']
 
 function NavButton({
@@ -29,7 +29,7 @@ function NavButton({
 }
 
 /**
- * Five routes, Settings visually separated below a divider. Nav items never
+ * Six routes, Settings visually separated below a divider. Nav items never
  * appear or disappear based on AI reachability — a menu that reshuffles
  * while you're reaching for it is the most disorienting failure available
  * here. `chatDim` only changes a dot colour, never removes the item.
