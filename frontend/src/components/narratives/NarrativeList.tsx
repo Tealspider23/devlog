@@ -4,10 +4,10 @@ import { NarrateButton } from './NarrateButton'
 import { Card } from '../common/Card'
 import { EmptyState } from '../common/EmptyState'
 
-/** Groups narratives by day, ordered by session start. Sessions without a story are never interleaved — gaps every third row would defeat the point. */
+/** Groups narratives by day, newest day first and newest session first within a day. Sessions without a story are never interleaved — gaps every third row would defeat the point. */
 function groupByDay(narratives: NarrativeDto[]): [string, NarrativeDto[]][] {
   const groups = new Map<string, NarrativeDto[]>()
-  for (const n of [...narratives].sort((a, b) => a.sessionStart.localeCompare(b.sessionStart))) {
+  for (const n of [...narratives].sort((a, b) => b.sessionStart.localeCompare(a.sessionStart))) {
     const day = n.sessionStart.slice(0, 10)
     const list = groups.get(day) ?? []
     list.push(n)
