@@ -1056,9 +1056,9 @@ seconds from the start of the session.
 
 Produce:
 
-- narrative: one or two sentences, past tense, plain and specific. Describe what
-  happened, in order, as a colleague would explain it. Do not editorialise about
-  productivity, focus or effort.
+- narrative: exactly two sentences, past tense, plain and specific. The first
+  sentence sets up what was worked on, the second what happened or resulted. Do
+  not editorialise about productivity, focus or effort.
 - kind: exactly one of
     feature-work        building something new
     bugfix              diagnosing or fixing a defect
@@ -1079,6 +1079,9 @@ Rules:
 - Every claim in the narrative must be supported by something in the input. You
   may connect events in sequence - that is the point of this task - but you may
   not introduce facts that are not there.
+- If you cannot support a genuine second sentence with evidence, do not pad -
+  write one honest sentence instead. "unclear" and "context-thrash" answers are
+  exempt from the two-sentence requirement for exactly this reason.
 - Each evidence string must refer to content present in the input. If you cannot
   produce two pieces of real evidence, answer kind "unclear" with low confidence.
 - "context-thrash" and "unclear" are correct answers. A scattered session is a
@@ -1136,9 +1139,9 @@ starts over at zero.
 Answer once per session, in the same order they are given, each keyed by its
 sessionId. Produce for each:
 
-- narrative: one or two sentences, past tense, plain and specific. Describe what
-  happened, in order, as a colleague would explain it. Do not editorialise about
-  productivity, focus or effort.
+- narrative: exactly two sentences, past tense, plain and specific. The first
+  sentence sets up what was worked on, the second what happened or resulted. Do
+  not editorialise about productivity, focus or effort.
 - kind: exactly one of
     feature-work        building something new
     bugfix              diagnosing or fixing a defect
@@ -1160,6 +1163,9 @@ Rules:
   of this task - but you may not introduce facts that are not there, and you may
   not use evidence or facts from a different session in this batch to support
   this one. Each session is its own closed world.
+- If you cannot support a genuine second sentence with evidence, do not pad -
+  write one honest sentence instead. "unclear" and "context-thrash" answers are
+  exempt from the two-sentence requirement for exactly this reason.
 - Each evidence string must refer to content present in that same session's
   input. If you cannot produce two pieces of real evidence for a session, answer
   that session's kind "unclear" with low confidence.
@@ -1256,6 +1262,33 @@ record what you tuned it to and why.
 
 Also reject when: `sessionId` does not match the one sent, `confidence <
 MinConfidence`, or `kind` is outside the enum.
+
+### 5.6a The sentence-count check
+
+The prompt asks for exactly two sentences (5.4/5.4a); this is enforced, not
+just requested, so a model that quietly reverts to one thin sentence per
+session is caught rather than silently shipped:
+
+```
+sentences(narrative) = count of matches of /[.!?]+(?=\s|$)/ in the trimmed
+                        narrative — a terminator only counts when followed by
+                        whitespace or end-of-string, so a decimal like "3.5"
+                        does not inflate the count
+
+reject the narrative if sentences(narrative) < 2
+```
+
+This is a cheap heuristic, not a parser: an abbreviation like "e.g." followed
+by a space still counts as a sentence boundary the same way a real one would.
+Accepted as a known false positive rather than building real sentence
+detection for a floor this loose.
+
+`kind: "unclear"` and `kind: "context-thrash"` are exempt, for the same reason
+they are exempt from the confidence floor in 5.6: forcing a genuinely
+scattered or unreadable session to pad to two sentences is exactly the
+invented-content problem this whole layer exists to avoid. A rejected
+narrative surfaces its `rejectionReason` in the UI rather than vanishing — a
+rejection here is the check working, not a bug.
 
 ### 5.7 Command
 
@@ -1373,6 +1406,51 @@ for each numeric token in the generated summary and highlights:
 If it fails, **print the deterministic digest without prose** and say the prose
 was rejected. A digest that inflates hours is worse than no digest, and it will
 not be noticed until someone else notices.
+
+### 6.5 The weekly-win variant — Job C, run once per week
+
+**Question: what did each week of a month amount to?** The Month view's "story
+of the month" — one short paragraph plus point-wise concrete wins, per
+calendar week, rather than one prose block for the whole month.
+
+**This reuses 6.1–6.4 exactly, scoped smaller.** `WeeklyWinRunner`
+(`Devlog.Host/Ai/WeeklyWinRunner.cs`) is not a new prompt: it calls
+`DigestBuilder.BuildAsync` for one week's `(from, to)` instead of the whole
+requested range, then calls `DigestProsePrompt` — same system prompt, same
+`JsonSchema`, same `ValidateAndParse`/`ValidateNumbers` numeric-hallucination
+guard — once per week. `summary` is the short prose sentence(s); `highlights`
+(the same field, 0–3 items) are read as the week's point-wise genuine wins —
+no new schema field, because a "win" is exactly what a highlight already is:
+something the figures and narratives can support, never something invented.
+
+**Weeks come from `CalendarRange.WeeksWithin(monthFrom, monthTo)`**, new
+alongside `CalendarRange.For`. Unlike `MondayOf`, a week here means "7 days
+within the requested range starting at its first day", not "the calendar week
+containing a date" — so the first and last weeks of a month are naturally
+partial rather than reaching outside the month.
+
+**Persisted, keyed on `(week_from, week_to)`**, in a new `weekly_win` table
+(migration `006`) — derived and re-runnable like `session_narrative`, but not
+cleared by `DerivationRunner`'s rebuild pass, since a week's boundaries are
+never reassigned the way session ids are. Staleness is checked the same way
+`SessionNarrative.IsStale` checks a session: if the week's narrative count, the
+newest narrative's `generated_utc`, or the configured model changed since the
+stored win was generated, it is regenerated; otherwise the stored row is
+returned and no model call happens. This is what makes pressing "Summarize
+weeks" on an unchanged month nearly free, same as re-pressing narrate.
+
+**Command and route:**
+
+```
+GET  /v1/weekly-wins?from=&to=          — plain read, no model call, whichever
+                                           weeks already have a stored win
+POST /v1/weekly-wins  { from, to, force? }  — explicitly triggered, like
+                                           POST /v1/narrate; ships that week's
+                                           narrative text to the provider
+```
+
+No CLI command — this is a Month-view-only feature today; add one if a
+terminal use case shows up.
 
 ---
 

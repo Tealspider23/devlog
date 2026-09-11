@@ -92,3 +92,41 @@ public sealed record NarrateResultDto(
             o.Narrative is null ? null : NarrativeDto.From(o.Narrative),
             o.RejectionReason))]);
 }
+
+/// <summary>Body of <c>POST /v1/weekly-wins</c>. <c>From</c>/<c>To</c> are the month's own range — the endpoint splits it into weeks itself.</summary>
+public sealed record WeeklyWinsRequestDto(string From, string To, bool? Force);
+
+public sealed record WeeklyWinDto(
+    string WeekFrom,
+    string WeekTo,
+    string Summary,
+    IReadOnlyList<string> Highlights,
+    string Model)
+{
+    public static WeeklyWinDto From(WeeklyWin w) => new(
+        w.WeekFrom.ToString("yyyy-MM-dd"),
+        w.WeekTo.ToString("yyyy-MM-dd"),
+        w.Summary,
+        w.Highlights,
+        w.Model);
+}
+
+public sealed record WeekOutcomeDto(
+    string WeekFrom,
+    string WeekTo,
+    bool Accepted,
+    bool SkippedAsUpToDate,
+    WeeklyWinDto? Win,
+    string? RejectionReason);
+
+public sealed record WeeklyWinsResultDto(IReadOnlyList<WeekOutcomeDto> Weeks)
+{
+    public static WeeklyWinsResultDto From(WeeklyWinResult r) => new(
+        [.. r.Weeks.Select(w => new WeekOutcomeDto(
+            w.WeekFrom.ToString("yyyy-MM-dd"),
+            w.WeekTo.ToString("yyyy-MM-dd"),
+            w.Accepted,
+            w.SkippedAsUpToDate,
+            w.Win is null ? null : WeeklyWinDto.From(w.Win),
+            w.RejectionReason))]);
+}

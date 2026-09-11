@@ -28,4 +28,28 @@ public static class CalendarRange
         var daysSinceMonday = ((int)date.DayOfWeek + 6) % 7;
         return date.AddDays(-daysSinceMonday);
     }
+
+    /// <summary>
+    /// Splits a month-shaped range into calendar weeks for the weekly-win
+    /// summary. Starts at <paramref name="monthFrom"/> itself, not the Monday
+    /// containing it — a week here means "days within the requested range",
+    /// not "days within the calendar week", so the first and last weeks are
+    /// naturally partial rather than reaching outside the month.
+    /// </summary>
+    public static IReadOnlyList<(DateOnly From, DateOnly To)> WeeksWithin(DateOnly monthFrom, DateOnly monthTo)
+    {
+        var weeks = new List<(DateOnly From, DateOnly To)>();
+        var cursor = monthFrom;
+
+        while (cursor <= monthTo)
+        {
+            var weekEnd = cursor.AddDays(6);
+            if (weekEnd > monthTo) weekEnd = monthTo;
+
+            weeks.Add((cursor, weekEnd));
+            cursor = weekEnd.AddDays(1);
+        }
+
+        return weeks;
+    }
 }

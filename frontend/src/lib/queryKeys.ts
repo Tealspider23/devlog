@@ -18,6 +18,7 @@ export const qk = {
   digest: (kind: RangeKind, offset: number) => ['digest', kind, offset] as const,
   digestProse: (kind: RangeKind, offset: number) => ['digest', kind, offset, 'prose'] as const,
   narratives: (from: string, to: string) => ['narratives', from, to] as const,
+  weeklyWins: (from: string, to: string) => ['weeklyWins', from, to] as const,
   aiStatus: () => ['ai', 'status'] as const,
   aiModels: () => ['ai', 'models'] as const,
   chatTranscript: () => ['chat', 'transcript'] as const,

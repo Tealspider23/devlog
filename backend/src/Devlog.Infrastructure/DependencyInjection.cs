@@ -36,6 +36,8 @@ public static class DependencyInjection
         services.AddSingleton<SessionStore>();
         services.AddSingleton<NarrativeStore>();
         services.AddSingleton<INarrativeStore>(sp => sp.GetRequiredService<NarrativeStore>());
+        services.AddSingleton<WeeklyWinStore>();
+        services.AddSingleton<IWeeklyWinStore>(sp => sp.GetRequiredService<WeeklyWinStore>());
 
         // The read half. Separate from the writers above because it is the one
         // thing both the terminal and the API consume — one query, two

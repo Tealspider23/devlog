@@ -16,6 +16,8 @@ public static class AiEndpoints
         group.MapPost("/ask", PostAsk);
         group.MapGet("/narratives", GetNarratives);
         group.MapPost("/narrate", PostNarrate);
+        group.MapGet("/weekly-wins", GetWeeklyWins);
+        group.MapPost("/weekly-wins", PostWeeklyWins);
         return group;
     }
 
@@ -105,5 +107,33 @@ public static class AiEndpoints
     {
         var result = await runner.RunAsync(request.Since, request.Limit, request.DryRun ?? false, request.Force ?? false, ct);
         return Results.Ok(NarrateResultDto.From(result));
+    }
+
+    /// <summary>A plain read, no model call — same shape as <see cref="GetNarratives"/>. Only returns weeks that already have a stored win; a week with none simply doesn't appear.</summary>
+    private static async Task<IResult> GetWeeklyWins(string? from, string? to, IWeeklyWinStore store, CancellationToken ct)
+    {
+        var today = DateOnly.FromDateTime(DateTime.Now);
+        var fromDate = DateOnly.TryParse(from, out var f) ? f : new DateOnly(today.Year, today.Month, 1);
+        var toDate = DateOnly.TryParse(to, out var t) ? t : today;
+
+        var wins = await store.GetRangeAsync(fromDate, toDate, ct);
+        return Results.Ok(wins.Select(WeeklyWinDto.From));
+    }
+
+    /// <summary>
+    /// Explicitly triggered, same reasoning as <see cref="PostNarrate"/> — this
+    /// is Job C, run once per week, and ships narrative text to a third party.
+    /// Has real cost even on a cache hit: the staleness check for every week
+    /// still runs, it just skips the model call when nothing changed.
+    /// </summary>
+    private static async Task<IResult> PostWeeklyWins(WeeklyWinsRequestDto request, IWeeklyWinRunner runner, CancellationToken ct)
+    {
+        if (!DateOnly.TryParse(request.From, out var from) || !DateOnly.TryParse(request.To, out var to) || from > to)
+        {
+            return Results.BadRequest(new { error = "valid from/to required, from <= to" });
+        }
+
+        var result = await runner.RunAsync(from, to, request.Force ?? false, ct);
+        return Results.Ok(WeeklyWinsResultDto.From(result));
     }
 }
