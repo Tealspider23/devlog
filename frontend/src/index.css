@@ -20,6 +20,14 @@
   --color-accent-dim: #8fbf1f;
   --color-warn: #ff8c42;
 
+  /* Insertions/deletions in the Shipped card only — deliberately not
+     --color-accent, which already means "deep work" everywhere else in the
+     app. The first red anywhere in the palette; unrelated to the AI-answer
+     states elsewhere that avoid red on purpose (a withheld answer isn't a
+     malfunction) — a diff count is a different kind of fact. */
+  --color-positive: #4ade80;
+  --color-negative: #f87171;
+
   /* Category colours. Used by the timeline band and the legend, defined once
      here so a category can never be one colour in one place and another
      elsewhere. Mirrors lib/categories.ts. */

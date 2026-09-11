@@ -1,12 +1,13 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useEffect, useState } from 'react'
 import { getDigest } from '../api/digest'
-import { getNarratives } from '../api/ai'
+import { getNarratives, getWeeklyWins } from '../api/ai'
 import { useAiStatus } from '../hooks/useAiStatus'
 import { StatCard } from '../components/stats/StatCard'
 import { DailyBars } from '../components/stats/DailyBars'
 import { BreakdownList } from '../components/stats/BreakdownList'
 import { NarrativeList } from '../components/narratives/NarrativeList'
+import { WeeklyWinList } from '../components/narratives/WeeklyWinList'
 import { PageHeader } from '../components/shell/PageHeader'
 import { PillButton } from '../components/common/PillButton'
 import { Card } from '../components/common/Card'
@@ -56,6 +57,12 @@ export function Range({ kind }: { kind: RangeKind }) {
     queryKey: qk.narratives(data?.from ?? '', data?.to ?? ''),
     queryFn: ({ signal }) => getNarratives(data!.from, data!.to, signal),
     enabled: !!data,
+  })
+
+  const weeklyWinsQuery = useQuery({
+    queryKey: qk.weeklyWins(data?.from ?? '', data?.to ?? ''),
+    queryFn: ({ signal }) => getWeeklyWins(data!.from, data!.to, signal),
+    enabled: !!data && kind === 'month',
   })
 
   const skippedMatch = proseMutation.data?.markdown.match(SKIPPED_NOTE)
@@ -112,7 +119,15 @@ export function Range({ kind }: { kind: RangeKind }) {
             <StatCard
               label="Shipped"
               value={String(data.commitCount)}
-              caption={data.commitCount > 0 ? `+${data.insertions}/-${data.deletions}` : undefined}
+              captionNode={
+                data.commitCount > 0 ? (
+                  <span className="text-xs">
+                    <span style={{ color: 'var(--color-positive)' }}>+{data.insertions}</span>
+                    {'/'}
+                    <span style={{ color: 'var(--color-negative)' }}>-{data.deletions}</span>
+                  </span>
+                ) : undefined
+              }
             />
             <StatCard
               label="Interruptions"
@@ -150,6 +165,10 @@ export function Range({ kind }: { kind: RangeKind }) {
                 </span>
               )}
             </Card>
+          )}
+
+          {aiStatus?.enabled && kind === 'month' && (
+            <WeeklyWinList from={data.from} to={data.to} wins={weeklyWinsQuery.data ?? []} />
           )}
 
           {aiStatus?.enabled && (

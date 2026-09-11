@@ -11,18 +11,21 @@ export function StatCard({
   label,
   value,
   caption,
+  captionNode,
   children,
 }: {
   label: string
   value: string
   caption?: string
+  /** A pre-styled caption, e.g. two differently-coloured spans. Takes priority over `caption` when given. */
+  captionNode?: ReactNode
   children?: ReactNode
 }) {
   return (
     <Card className="flex flex-col gap-2 p-4">
       <span className="text-xs text-faint">{label}</span>
       <span className="text-2xl font-semibold text-ink">{value}</span>
-      {caption && <span className="text-xs text-muted">{caption}</span>}
+      {captionNode ?? (caption && <span className="text-xs text-muted">{caption}</span>)}
       {children}
     </Card>
   )
