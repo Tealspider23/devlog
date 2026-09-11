@@ -1,6 +1,9 @@
 import type { CategoryTimeDto, ProjectTimeDto } from '../../types/api'
 import { CATEGORY_COLOR, CATEGORY_LABEL } from '../../lib/categories'
 import { formatHours } from '../../lib/format'
+import { Tooltip } from '../common/Tooltip'
+
+const pctOf = (seconds: number, total: number) => (total > 0 ? Math.round((seconds / total) * 100) : 0)
 
 /** Time-by-project or time-by-category, computed by the backend and previously unrendered. */
 export function BreakdownList({
@@ -21,31 +24,49 @@ export function BreakdownList({
       <span className="text-xs text-faint">{title}</span>
       <div className="flex flex-col gap-1.5">
         {projects?.map((p) => (
-          <div key={p.project} className="flex items-center gap-2 text-xs">
-            <span className="w-24 shrink-0 truncate text-muted">{p.project}</span>
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
-              <div
-                className="h-full rounded-full bg-accent"
-                style={{ width: `${total > 0 ? (p.seconds / total) * 100 : 0}%` }}
-              />
+          <Tooltip
+            key={p.project}
+            label={
+              <span>
+                {p.project} — {formatHours(p.seconds)} ({pctOf(p.seconds, total)}%)
+              </span>
+            }
+          >
+            <div className="-mx-1 flex items-center gap-2 rounded-md px-1 text-xs transition-colors hover:bg-raised/50">
+              <span className="w-24 shrink-0 truncate text-muted">{p.project}</span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
+                <div
+                  className="h-full rounded-full bg-accent"
+                  style={{ width: `${pctOf(p.seconds, total)}%` }}
+                />
+              </div>
+              <span className="w-10 shrink-0 text-right text-faint">{formatHours(p.seconds)}</span>
             </div>
-            <span className="w-10 shrink-0 text-right text-faint">{formatHours(p.seconds)}</span>
-          </div>
+          </Tooltip>
         ))}
         {categories?.map((c) => (
-          <div key={c.category} className="flex items-center gap-2 text-xs">
-            <span className="w-24 shrink-0 truncate text-muted">{CATEGORY_LABEL[c.category]}</span>
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
-              <div
-                className="h-full rounded-full"
-                style={{
-                  width: `${total > 0 ? (c.seconds / total) * 100 : 0}%`,
-                  backgroundColor: CATEGORY_COLOR[c.category],
-                }}
-              />
+          <Tooltip
+            key={c.category}
+            label={
+              <span>
+                {CATEGORY_LABEL[c.category]} — {formatHours(c.seconds)} ({pctOf(c.seconds, total)}%)
+              </span>
+            }
+          >
+            <div className="-mx-1 flex items-center gap-2 rounded-md px-1 text-xs transition-colors hover:bg-raised/50">
+              <span className="w-24 shrink-0 truncate text-muted">{CATEGORY_LABEL[c.category]}</span>
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-line">
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${pctOf(c.seconds, total)}%`,
+                    backgroundColor: CATEGORY_COLOR[c.category],
+                  }}
+                />
+              </div>
+              <span className="w-10 shrink-0 text-right text-faint">{formatHours(c.seconds)}</span>
             </div>
-            <span className="w-10 shrink-0 text-right text-faint">{formatHours(c.seconds)}</span>
-          </div>
+          </Tooltip>
         ))}
       </div>
     </div>
