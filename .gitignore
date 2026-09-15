@@ -4,6 +4,7 @@
 *.db-shm
 *.sqlite
 api-token.txt
+ai-api-key.dat
 
 # Real local repo paths and any historical author emails belong here, not in
 # appsettings.json - that file is public. ASP.NET Core layers this over the

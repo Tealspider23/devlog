@@ -1,4 +1,5 @@
 using Devlog.Api.Contracts;
+using Devlog.Api.Security;
 using Devlog.Core.Abstractions;
 using Devlog.Core.Configuration;
 using Microsoft.AspNetCore.Builder;
@@ -12,6 +13,7 @@ public static class AiEndpoints
     public static RouteGroupBuilder MapAiEndpoints(this RouteGroupBuilder group)
     {
         group.MapGet("/ai/status", GetStatus);
+        group.MapPost("/ai/key", PostSetApiKey);
         group.MapGet("/ai/models", GetModels);
         group.MapPost("/ask", PostAsk);
         group.MapGet("/narratives", GetNarratives);
@@ -69,6 +71,16 @@ public static class AiEndpoints
             Endpoint: endpoint,
             OffMachine: offMachine,
             Host: host));
+    }
+
+    /// <summary>
+    /// Overrides <c>appsettings.local.json</c>'s key, live, no restart — see
+    /// <see cref="AiKeyStore"/>. A blank key clears the stored one.
+    /// </summary>
+    private static IResult PostSetApiKey(SetAiApiKeyRequestDto request, AiKeyStore store)
+    {
+        store.Save(request.ApiKey);
+        return Results.Ok(new AiApiKeyResultDto(!string.IsNullOrWhiteSpace(request.ApiKey)));
     }
 
     private static async Task<IResult> GetModels(IChatClient chatClient, CancellationToken ct)

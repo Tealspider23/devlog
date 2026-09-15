@@ -22,6 +22,7 @@ public static class ApiExtensions
     public static IServiceCollection AddDevlogApi(this IServiceCollection services, ApiOptions api)
     {
         services.AddSingleton<ApiTokenStore>();
+        services.AddSingleton<AiKeyStore>();
 
         if (!string.IsNullOrWhiteSpace(api.DevCorsOrigin))
         {

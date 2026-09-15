@@ -15,6 +15,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- DPAPI, for AiKeyStore's at-rest encryption of the user-supplied AI provider key. -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Devlog.Core\Devlog.Core.csproj" />
   </ItemGroup>
 

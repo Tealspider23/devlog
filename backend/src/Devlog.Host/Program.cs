@@ -1,6 +1,7 @@
 using System.Net;
 using System.Windows.Forms;
 using Devlog.Api;
+using Devlog.Api.Security;
 using Devlog.Core.Abstractions;
 using Devlog.Core.Configuration;
 using Devlog.Host.Commands;
@@ -78,6 +79,12 @@ internal static class Program
         // Schema first: nothing may touch the database before WAL is set and
         // migrations have run.
         host.Services.GetRequiredService<MigrationRunner>().Run();
+
+        // AiKeyStore's constructor is where a key saved from Settings gets
+        // decrypted and applied to the shared AiOptions singleton. Singletons
+        // build lazily, so without this the override would only take effect
+        // whenever something else happened to touch AI first.
+        host.Services.GetRequiredService<AiKeyStore>();
 
         // "Off" does not mean the port stops listening — Kestrel is already
         // configured above, before args were known. It means nothing beyond

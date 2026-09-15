@@ -7,6 +7,12 @@ namespace Devlog.Api.Contracts;
 /// <c>GET /v1/ai/status</c> — the <c>devlog llm</c> screen as data. Never
 /// carries the API key itself, same rule the CLI follows: presence only.
 /// </summary>
+/// <summary>Body of <c>POST /v1/ai/key</c>. A blank/whitespace key clears whatever is stored.</summary>
+public sealed record SetAiApiKeyRequestDto(string? ApiKey);
+
+/// <summary>Same rule as <see cref="AiStatusDto"/> — the key value is never echoed back, only whether one is now present.</summary>
+public sealed record AiApiKeyResultDto(bool ApiKeyPresent);
+
 public sealed record AiStatusDto(
     bool Enabled,
     string ConfiguredModel,

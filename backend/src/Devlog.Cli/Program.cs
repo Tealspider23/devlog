@@ -1,3 +1,4 @@
+using Devlog.Api.Security;
 using Devlog.Host;
 using Devlog.Host.Commands;
 using Devlog.Host.Diagnostics;
@@ -47,6 +48,11 @@ internal static class Program
 
         using var host = BuildHost(args);
         host.Services.GetRequiredService<MigrationRunner>().Run();
+
+        // Same reasoning as Devlog.Host/Program.cs: applies a key saved from
+        // the dashboard's Settings page to this process too, since it never
+        // shares a running collector's in-memory AiOptions singleton.
+        host.Services.GetRequiredService<AiKeyStore>();
 
         // Null is impossible here: the catalogue and the dispatcher cover the
         // same set, and the command was checked against the catalogue above. If
