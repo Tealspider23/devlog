@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
-import { getAiModels } from '../api/ai'
+import { getAiModels, setAiApiKey } from '../api/ai'
 import { useAiStatus } from '../hooks/useAiStatus'
 import { PageHeader } from '../components/shell/PageHeader'
 import { Card } from '../components/common/Card'
@@ -32,6 +32,15 @@ export function Settings() {
   })
 
   const [defaultModel, setDefaultModel] = useState(() => loadPreferredModel(status?.configuredModel ?? ''))
+
+  const [apiKeyInput, setApiKeyInput] = useState('')
+  const setKeyMutation = useMutation({
+    mutationFn: (apiKey: string | null) => setAiApiKey(apiKey),
+    onSuccess: () => {
+      setApiKeyInput('')
+      refetch()
+    },
+  })
 
   // status is still loading on first render if this route is opened
   // directly (e.g. a reload on #/settings) before App's prefetch resolves.
@@ -94,6 +103,32 @@ export function Settings() {
           <span className="text-faint">API key</span>
           <span className="text-muted">{status?.apiKeyPresent ? 'present' : 'not found'}</span>
         </div>
+        <div className="mt-1 flex gap-2">
+          <input
+            type="password"
+            value={apiKeyInput}
+            onChange={(e) => setApiKeyInput(e.target.value)}
+            placeholder="Paste a provider API key…"
+            autoComplete="off"
+            className="min-w-0 flex-1 rounded-md border border-line bg-page px-2 py-1 text-xs text-ink placeholder:text-faint"
+          />
+          <PillButton
+            onClick={() => setKeyMutation.mutate(apiKeyInput)}
+            disabled={apiKeyInput.trim() === '' || setKeyMutation.isPending}
+          >
+            Save
+          </PillButton>
+          <PillButton
+            onClick={() => setKeyMutation.mutate(null)}
+            disabled={!status?.apiKeyPresent || setKeyMutation.isPending}
+          >
+            Clear
+          </PillButton>
+        </div>
+        <span className="text-xs text-faint">
+          Stored encrypted on this machine (Windows DPAPI, this user account only), next to the database. Overrides
+          any key in appsettings.local.json. Never displayed again once saved.
+        </span>
       </Card>
 
       <Card className="flex flex-col gap-2 p-4">
@@ -167,9 +202,10 @@ export function Settings() {
       </Card>
 
       <p className="text-xs text-faint">
-        Read from appsettings.local.json next to devlog.exe. devlog's API has no write path for configuration —
-        edit the file and restart the collector. Run <code className="font-mono">devlog llm</code> to test the
-        connection from the command line.
+        Endpoint, model, and job toggles are read from appsettings.local.json next to devlog.exe — edit the file
+        and restart the collector to change them. The API key above is the exception: it can be set here directly,
+        no restart required. Run <code className="font-mono">devlog llm</code> to test the connection from the
+        command line.
       </p>
     </div>
   )

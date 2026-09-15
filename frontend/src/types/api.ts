@@ -190,6 +190,14 @@ export interface AiModelsDto {
   models: string[]
 }
 
+export interface SetAiApiKeyRequestDto {
+  apiKey: string | null
+}
+
+export interface AiApiKeyResultDto {
+  apiKeyPresent: boolean
+}
+
 export interface AskRequestDto {
   question: string
   model?: string

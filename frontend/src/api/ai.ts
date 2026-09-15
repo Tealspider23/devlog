@@ -1,5 +1,6 @@
 import { api } from './client'
 import type {
+  AiApiKeyResultDto,
   AiModelsDto,
   AiStatusDto,
   AskResponseDto,
@@ -8,6 +9,7 @@ import type {
   NarrateRequestDto,
   NarrateResultDto,
   NarrativeDto,
+  SetAiApiKeyRequestDto,
   WeeklyWinDto,
   WeeklyWinsRequestDto,
   WeeklyWinsResultDto,
@@ -16,6 +18,15 @@ import type {
 /** Runs a live provider probe (up to two endpoints, 10s connect timeout) — not a cheap read, see hooks/useAiStatus.ts. */
 export function getAiStatus(signal?: AbortSignal): Promise<AiStatusDto> {
   return api.get<AiStatusDto>('/v1/ai/status', signal)
+}
+
+/**
+ * Overrides appsettings.local.json's key, live, no restart — see the backend's
+ * AiKeyStore. Never returns the key itself, only whether one is now present.
+ * A null/blank apiKey clears whatever is stored.
+ */
+export function setAiApiKey(apiKey: string | null): Promise<AiApiKeyResultDto> {
+  return api.post<AiApiKeyResultDto>('/v1/ai/key', { apiKey } satisfies SetAiApiKeyRequestDto)
 }
 
 /** Returns `{models: []}` on any failure — indistinguishable from success-with-zero. Callers must consult AiStatusDto to tell the two apart. */
