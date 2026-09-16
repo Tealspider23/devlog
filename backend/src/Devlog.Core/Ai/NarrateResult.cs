@@ -21,8 +21,18 @@ public sealed record NarrateOutcome(
 /// <c>POST /v1/narrate</c> can render the same run without disagreeing —
 /// same discipline as <c>ISessionReader</c>: one result, two renderers.
 /// </summary>
+/// <param name="StoppedEarly">
+/// True when the run gave up before attempting every eligible session,
+/// because a batch hit a rate-limit response — retrying it would only spend
+/// more of the same per-minute/per-day budget it is waiting for. Sessions
+/// past the stopping point are simply untouched, not rejected: they remain
+/// un-narrated and will be picked up by the next run.
+/// </param>
+/// <param name="StopReason">Human-readable reason when <see cref="StoppedEarly"/> is true; null otherwise.</param>
 public sealed record NarrateResult(
     bool DryRun,
     int AcceptedCount,
     int RejectedCount,
-    IReadOnlyList<NarrateOutcome> Outcomes);
+    IReadOnlyList<NarrateOutcome> Outcomes,
+    bool StoppedEarly = false,
+    string? StopReason = null);

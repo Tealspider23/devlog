@@ -10,5 +10,6 @@ namespace Devlog.Core.Abstractions;
 /// </summary>
 public interface IClassifyAiRunner
 {
-    Task<ClassifyAiResult> RunAsync(bool dryRun, int? limitOverride, CancellationToken ct = default);
+    /// <param name="force">Bypasses the recently-attempted exclusion (see <see cref="IClassifyAttemptStore"/>) — sends identities the model already declined to answer confidently again anyway.</param>
+    Task<ClassifyAiResult> RunAsync(bool dryRun, int? limitOverride, bool force = false, CancellationToken ct = default);
 }

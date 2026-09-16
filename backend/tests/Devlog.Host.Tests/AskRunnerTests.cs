@@ -61,13 +61,13 @@ public sealed class AskRunnerTests : IDisposable
 
         public string? LastRequestedModel { get; private set; }
 
-        public Task<ChatResult> CompleteAsync(string systemPrompt, string userContent, string jsonSchemaName, string jsonSchema, string reasoningEffort, CancellationToken ct = default, string? model = null)
+        public Task<ChatResult> CompleteAsync(string systemPrompt, string userContent, string jsonSchemaName, string jsonSchema, string reasoningEffort, CancellationToken ct = default, string? model = null, string? job = null)
         {
             LastRequestedModel = model;
             return Task.FromResult(new ChatResult(Reachable, "{}", model ?? "stub", null));
         }
 
-        public Task<ToolChatResult> CompleteWithToolsAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition>? tools, string reasoningEffort, CancellationToken ct = default, string? model = null)
+        public Task<ToolChatResult> CompleteWithToolsAsync(IReadOnlyList<ChatMessage> messages, IReadOnlyList<ToolDefinition>? tools, string reasoningEffort, CancellationToken ct = default, string? model = null, string? job = null)
         {
             LastRequestedModel = model;
 
@@ -86,6 +86,7 @@ public sealed class AskRunnerTests : IDisposable
 
         public Task<bool> IsReachableAsync(CancellationToken ct = default) => Task.FromResult(Reachable);
         public Task<string?> ResolveEndpointAsync(CancellationToken ct = default) => Task.FromResult<string?>("http://127.0.0.1:11434/v1");
+        public Task<string?> ResolveEndpointAsync(bool forceProbe, CancellationToken ct = default) => Task.FromResult<string?>("http://127.0.0.1:11434/v1");
         public Task<IReadOnlyList<string>> ListModelsAsync(CancellationToken ct = default) => Task.FromResult<IReadOnlyList<string>>([]);
     }
 

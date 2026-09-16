@@ -16,4 +16,8 @@ public sealed record WeekOutcome(
     WeeklyWin? Win,
     string? RejectionReason);
 
-public sealed record WeeklyWinResult(IReadOnlyList<WeekOutcome> Weeks);
+/// <param name="StoppedEarly">Same reasoning as <see cref="NarrateResult.StoppedEarly"/> — a rate-limited week stops the remaining weeks from being attempted rather than letting each fail the same way.</param>
+public sealed record WeeklyWinResult(
+    IReadOnlyList<WeekOutcome> Weeks,
+    bool StoppedEarly = false,
+    string? StopReason = null);
