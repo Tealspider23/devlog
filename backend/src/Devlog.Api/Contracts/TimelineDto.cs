@@ -24,7 +24,7 @@ public sealed record ClassifyRequest(string Identity, string Category, string? K
 public sealed record ClassifyResponse(string Identity, string Category, bool PromotedToMixed);
 
 /// <summary>Body of <c>POST /v1/classify-ai</c> — the LLM-verdict path, distinct from the manual <see cref="ClassifyRequest"/> above.</summary>
-public sealed record ClassifyAiRequestDto(bool? DryRun, int? Limit);
+public sealed record ClassifyAiRequestDto(bool? DryRun, int? Limit, bool? Force);
 
 public sealed record ClassifyAiVerdictOutcomeDto(string Identity, string Category, double Confidence, string Reason);
 

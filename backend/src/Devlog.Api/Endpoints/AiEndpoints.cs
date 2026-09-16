@@ -26,10 +26,17 @@ public static class AiEndpoints
     /// <summary>
     /// The <c>devlog llm</c> screen as data. Same rule as the CLI: the API key
     /// is reported present/absent, never its value.
+    /// <para>
+    /// Forces a live probe rather than trusting <c>ChatClassifier</c>'s cache
+    /// (Phase 15) — this endpoint's whole job is reporting current
+    /// reachability, so Settings' "Re-check" button must mean what it says
+    /// even inside the probe's normal TTL.
+    /// </para>
     /// </summary>
-    private static async Task<IResult> GetStatus(AiOptions ai, IChatClient chatClient, CancellationToken ct)
+    private static async Task<IResult> GetStatus(AiOptions ai, IChatClient chatClient, ILlmRequestLog requestLog, CancellationToken ct)
     {
         var apiKeyPresent = !string.IsNullOrWhiteSpace(ai.ApiKey);
+        var requestsToday = await requestLog.CountTodayAsync(ct);
 
         if (!ai.Enabled)
         {
@@ -44,10 +51,12 @@ public static class AiEndpoints
                 Reachable: false,
                 Endpoint: null,
                 OffMachine: null,
-                Host: null));
+                Host: null,
+                RequestsToday: requestsToday,
+                RequestsPerDay: ai.RequestsPerDay));
         }
 
-        var endpoint = await chatClient.ResolveEndpointAsync(ct);
+        var endpoint = await chatClient.ResolveEndpointAsync(forceProbe: true, ct);
 
         // Same "where does my data go" reasoning as `devlog llm`: a host that
         // is not this machine is named, never left implicit.
@@ -70,7 +79,9 @@ public static class AiEndpoints
             Reachable: endpoint is not null,
             Endpoint: endpoint,
             OffMachine: offMachine,
-            Host: host));
+            Host: host,
+            RequestsToday: requestsToday,
+            RequestsPerDay: ai.RequestsPerDay));
     }
 
     /// <summary>

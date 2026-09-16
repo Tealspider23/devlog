@@ -24,7 +24,9 @@ public sealed record AiStatusDto(
     bool Reachable,
     string? Endpoint,
     bool? OffMachine,
-    string? Host);
+    string? Host,
+    int RequestsToday = 0,
+    int RequestsPerDay = 0);
 
 public sealed record AiModelsDto(IReadOnlyList<string> Models);
 
@@ -83,7 +85,9 @@ public sealed record NarrateResultDto(
     bool DryRun,
     int AcceptedCount,
     int RejectedCount,
-    IReadOnlyList<NarrateOutcomeDto> Outcomes)
+    IReadOnlyList<NarrateOutcomeDto> Outcomes,
+    bool StoppedEarly = false,
+    string? StopReason = null)
 {
     public static NarrateResultDto From(NarrateResult r) => new(
         r.DryRun,
@@ -96,7 +100,9 @@ public sealed record NarrateResultDto(
             o.DurationSeconds,
             o.Accepted,
             o.Narrative is null ? null : NarrativeDto.From(o.Narrative),
-            o.RejectionReason))]);
+            o.RejectionReason))],
+        r.StoppedEarly,
+        r.StopReason);
 }
 
 /// <summary>Body of <c>POST /v1/weekly-wins</c>. <c>From</c>/<c>To</c> are the month's own range — the endpoint splits it into weeks itself.</summary>
@@ -125,7 +131,10 @@ public sealed record WeekOutcomeDto(
     WeeklyWinDto? Win,
     string? RejectionReason);
 
-public sealed record WeeklyWinsResultDto(IReadOnlyList<WeekOutcomeDto> Weeks)
+public sealed record WeeklyWinsResultDto(
+    IReadOnlyList<WeekOutcomeDto> Weeks,
+    bool StoppedEarly = false,
+    string? StopReason = null)
 {
     public static WeeklyWinsResultDto From(WeeklyWinResult r) => new(
         [.. r.Weeks.Select(w => new WeekOutcomeDto(
@@ -134,5 +143,7 @@ public sealed record WeeklyWinsResultDto(IReadOnlyList<WeekOutcomeDto> Weeks)
             w.Accepted,
             w.SkippedAsUpToDate,
             w.Win is null ? null : WeeklyWinDto.From(w.Win),
-            w.RejectionReason))]);
+            w.RejectionReason))],
+        r.StoppedEarly,
+        r.StopReason);
 }

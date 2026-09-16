@@ -72,7 +72,7 @@ public static class ClassificationEndpoints
     /// </summary>
     private static async Task<IResult> PostClassifyAi(ClassifyAiRequestDto request, IClassifyAiRunner runner, CancellationToken ct)
     {
-        var result = await runner.RunAsync(request.DryRun ?? false, request.Limit, ct);
+        var result = await runner.RunAsync(request.DryRun ?? false, request.Limit, request.Force ?? false, ct);
         return Results.Ok(ClassifyAiResultDto.From(result));
     }
 }
