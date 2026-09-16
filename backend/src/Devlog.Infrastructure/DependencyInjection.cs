@@ -39,6 +39,12 @@ public static class DependencyInjection
         services.AddSingleton<WeeklyWinStore>();
         services.AddSingleton<IWeeklyWinStore>(sp => sp.GetRequiredService<WeeklyWinStore>());
 
+        // Phase 15: not derived in the "rebuilt on every derivation" sense
+        // above — deliberately outside that rebuild, see IClassifyAttemptStore's
+        // doc comment.
+        services.AddSingleton<ClassifyAttemptStore>();
+        services.AddSingleton<IClassifyAttemptStore>(sp => sp.GetRequiredService<ClassifyAttemptStore>());
+
         // The read half. Separate from the writers above because it is the one
         // thing both the terminal and the API consume — one query, two
         // renderers, so they cannot disagree about what a session was.
@@ -56,6 +62,12 @@ public static class DependencyInjection
         // match the process, not a scope.
         services.AddSingleton<IActivityWatcher, WinEventForegroundWatcher>();
         services.AddSingleton<SessionSwitchMonitor>();
+
+        // The forensic trail + "requests used today" figure — registered before
+        // ChatClassifier so its optional ILlmRequestLog constructor parameter
+        // resolves to this instance instead of defaulting to null.
+        services.AddSingleton<LlmRequestLog>();
+        services.AddSingleton<ILlmRequestLog>(sp => sp.GetRequiredService<LlmRequestLog>());
 
         // AI client. Plain HttpClient against OpenAI-compatible endpoint.
         services.AddSingleton<IChatClient, ChatClassifier>();

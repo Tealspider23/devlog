@@ -2,24 +2,44 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Devlog.Core.Abstractions;
+using Devlog.Core.Ai;
 using Devlog.Core.Configuration;
 
 namespace Devlog.Infrastructure.Ai;
 
 /// <summary>
-/// OpenAI-compatible HTTP client for local LLM inference (Ollama, LM Studio, vLLM).
-/// Uses plain HttpClient with no vendor SDK dependencies.
+/// OpenAI-compatible HTTP client for local LLM inference (Ollama, LM Studio, vLLM)
+/// and hosted OpenAI-compatible providers (e.g. Gemini). Uses plain HttpClient
+/// with no vendor SDK dependencies.
+/// <para>
+/// Also the one chokepoint every AI job funnels through, which is why the
+/// endpoint probe cache, the per-minute pacing, and the request log all live
+/// here rather than being duplicated per job (see Phase 15: a 44-session
+/// narrate backlog cost ~30 requests against a 5-per-minute cap because every
+/// call re-probed the endpoint and every retry spent more of the budget it
+/// was waiting for).
+/// </para>
 /// </summary>
 public sealed class ChatClassifier : IChatClient, IDisposable
 {
+    private const int MaxTransientRetries = 4;
+
     private readonly AiOptions _options;
     private readonly HttpClient _client;
     private readonly bool _ownsClient;
-    private string? _resolvedEndpoint;
+    private readonly ILlmRequestLog? _requestLog;
+    private readonly TokenBucket _tokenBucket;
+    private readonly SemaphoreSlim _rateLimitGate = new(1, 1);
 
-    public ChatClassifier(AiOptions options, HttpClient? client = null)
+    private string? _resolvedEndpoint;
+    private DateTimeOffset _resolvedAtUtc = DateTimeOffset.MinValue;
+
+    public ChatClassifier(AiOptions options, HttpClient? client = null, ILlmRequestLog? requestLog = null)
     {
         _options = options;
+        _requestLog = requestLog;
+        _tokenBucket = new TokenBucket(Math.Max(1, options.RequestsPerMinute), TimeSpan.FromMinutes(1));
+
         if (client is not null)
         {
             _client = client;
@@ -32,11 +52,19 @@ public sealed class ChatClassifier : IChatClient, IDisposable
         }
     }
 
-    public async Task<string?> ResolveEndpointAsync(CancellationToken ct = default)
+    public Task<string?> ResolveEndpointAsync(CancellationToken ct = default) =>
+        ResolveEndpointAsync(forceProbe: false, ct);
+
+    public async Task<string?> ResolveEndpointAsync(bool forceProbe, CancellationToken ct = default)
     {
         if (!_options.Enabled)
         {
             return null;
+        }
+
+        if (!forceProbe && _resolvedEndpoint is not null && !IsProbeStale())
+        {
+            return _resolvedEndpoint;
         }
 
         if (!string.IsNullOrWhiteSpace(_options.Endpoint))
@@ -44,14 +72,17 @@ public sealed class ChatClassifier : IChatClient, IDisposable
             var explicitEndpoint = _options.Endpoint.TrimEnd('/');
             if (await CheckEndpointAsync(explicitEndpoint, ct).ConfigureAwait(false))
             {
-                _resolvedEndpoint = explicitEndpoint;
+                SetResolved(explicitEndpoint);
                 return explicitEndpoint;
             }
+
+            _resolvedEndpoint = null;
             return null;
         }
 
         if (_resolvedEndpoint is not null && await CheckEndpointAsync(_resolvedEndpoint, ct).ConfigureAwait(false))
         {
+            SetResolved(_resolvedEndpoint);
             return _resolvedEndpoint;
         }
 
@@ -60,13 +91,22 @@ public sealed class ChatClassifier : IChatClient, IDisposable
         {
             if (await CheckEndpointAsync(endpoint, ct).ConfigureAwait(false))
             {
-                _resolvedEndpoint = endpoint;
+                SetResolved(endpoint);
                 return endpoint;
             }
         }
 
         _resolvedEndpoint = null;
         return null;
+    }
+
+    private bool IsProbeStale() =>
+        DateTimeOffset.UtcNow - _resolvedAtUtc > TimeSpan.FromSeconds(Math.Max(1, _options.EndpointProbeTtlSeconds));
+
+    private void SetResolved(string endpoint)
+    {
+        _resolvedEndpoint = endpoint;
+        _resolvedAtUtc = DateTimeOffset.UtcNow;
     }
 
     public async Task<bool> IsReachableAsync(CancellationToken ct = default)
@@ -82,17 +122,18 @@ public sealed class ChatClassifier : IChatClient, IDisposable
         string jsonSchema,
         string reasoningEffort,
         CancellationToken ct = default,
-        string? model = null)
+        string? model = null,
+        string? job = null)
     {
         if (!_options.Enabled)
         {
-            return new ChatResult(Reachable: false, Content: null, Model: null, Error: "AI features are disabled in configuration.");
+            return new ChatResult(Reachable: false, Content: null, Model: null, Error: "AI features are disabled in configuration.", FailureKind: ChatFailureKind.Unreachable);
         }
 
         var endpoint = await ResolveEndpointAsync(ct).ConfigureAwait(false);
         if (endpoint is null)
         {
-            return new ChatResult(Reachable: false, Content: null, Model: null, Error: "No reachable OpenAI-compatible provider found.");
+            return new ChatResult(Reachable: false, Content: null, Model: null, Error: "No reachable OpenAI-compatible provider found.", FailureKind: ChatFailureKind.Unreachable);
         }
 
         var effectiveModel = string.IsNullOrWhiteSpace(model) ? _options.Model : model;
@@ -130,45 +171,32 @@ public sealed class ChatClassifier : IChatClient, IDisposable
             using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, _options.RequestTimeoutSeconds)));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
-            HttpResponseMessage? resp = null;
-            const int maxRetries = 2;
-
-            for (int attempt = 0; attempt <= maxRetries; attempt++)
-            {
-                using var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions")
+            var outcome = await SendWithRetryAsync(
+                () =>
                 {
-                    Content = new StringContent(json, Encoding.UTF8, "application/json")
-                };
+                    var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions")
+                    {
+                        Content = new StringContent(json, Encoding.UTF8, "application/json")
+                    };
+                    if (!string.IsNullOrWhiteSpace(_options.ApiKey))
+                    {
+                        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
+                    }
+                    return req;
+                },
+                job,
+                effectiveModel,
+                linkedCts.Token).ConfigureAwait(false);
 
-                if (!string.IsNullOrWhiteSpace(_options.ApiKey))
-                {
-                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
-                }
-
-                resp = await _client.SendAsync(req, linkedCts.Token).ConfigureAwait(false);
-
-                if (resp.IsSuccessStatusCode)
-                {
-                    break;
-                }
-
-                var isTransient = (int)resp.StatusCode is 429 or 503;
-                if (!isTransient || attempt == maxRetries)
-                {
-                    break;
-                }
-
-                // Exponential backoff: 2s on first retry, 4s on second
-                var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
-                await Task.Delay(delay, linkedCts.Token).ConfigureAwait(false);
-            }
+            using var resp = outcome.Response;
 
             if (resp is null || !resp.IsSuccessStatusCode)
             {
-                var errorBody = resp is not null ? await resp.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false) : "No response";
+                var errorBody = resp is not null ? await resp.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false) : (outcome.TransportError ?? "No response");
                 var code = resp is not null ? (int)resp.StatusCode : 0;
                 var reason = resp?.ReasonPhrase ?? "Unknown";
-                return new ChatResult(Reachable: false, Content: null, Model: null, Error: $"HTTP {code} {reason}: {errorBody}");
+                var errorText = resp is not null ? $"HTTP {code} {reason}: {errorBody}" : errorBody;
+                return new ChatResult(Reachable: false, Content: null, Model: null, Error: errorText, FailureKind: outcome.FailureKind);
             }
 
             var respJson = await resp.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
@@ -193,11 +221,11 @@ public sealed class ChatClassifier : IChatClient, IDisposable
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            return new ChatResult(Reachable: false, Content: null, Model: null, Error: $"Request timed out after {_options.RequestTimeoutSeconds}s");
+            return new ChatResult(Reachable: false, Content: null, Model: null, Error: $"Request timed out after {_options.RequestTimeoutSeconds}s", FailureKind: ChatFailureKind.Transient);
         }
         catch (Exception ex)
         {
-            return new ChatResult(Reachable: false, Content: null, Model: null, Error: ex.InnerException?.Message ?? ex.Message);
+            return new ChatResult(Reachable: false, Content: null, Model: null, Error: ex.InnerException?.Message ?? ex.Message, FailureKind: ChatFailureKind.Unreachable);
         }
     }
 
@@ -206,17 +234,18 @@ public sealed class ChatClassifier : IChatClient, IDisposable
         IReadOnlyList<ToolDefinition>? tools,
         string reasoningEffort,
         CancellationToken ct = default,
-        string? model = null)
+        string? model = null,
+        string? job = null)
     {
         if (!_options.Enabled)
         {
-            return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: "AI is disabled in configuration.");
+            return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: "AI is disabled in configuration.", FailureKind: ChatFailureKind.Unreachable);
         }
 
         var endpoint = await ResolveEndpointAsync(ct).ConfigureAwait(false);
         if (endpoint is null)
         {
-            return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: "No reachable OpenAI-compatible provider found.");
+            return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: "No reachable OpenAI-compatible provider found.", FailureKind: ChatFailureKind.Unreachable);
         }
 
         var effectiveModel = string.IsNullOrWhiteSpace(model) ? _options.Model : model;
@@ -310,44 +339,32 @@ public sealed class ChatClassifier : IChatClient, IDisposable
             using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(1, _options.RequestTimeoutSeconds)));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
 
-            HttpResponseMessage? resp = null;
-            const int maxRetries = 2;
-
-            for (int attempt = 0; attempt <= maxRetries; attempt++)
-            {
-                using var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions")
+            var outcome = await SendWithRetryAsync(
+                () =>
                 {
-                    Content = new StringContent(json, Encoding.UTF8, "application/json")
-                };
+                    var req = new HttpRequestMessage(HttpMethod.Post, $"{endpoint}/chat/completions")
+                    {
+                        Content = new StringContent(json, Encoding.UTF8, "application/json")
+                    };
+                    if (!string.IsNullOrWhiteSpace(_options.ApiKey))
+                    {
+                        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
+                    }
+                    return req;
+                },
+                job,
+                effectiveModel,
+                linkedCts.Token).ConfigureAwait(false);
 
-                if (!string.IsNullOrWhiteSpace(_options.ApiKey))
-                {
-                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.ApiKey);
-                }
-
-                resp = await _client.SendAsync(req, linkedCts.Token).ConfigureAwait(false);
-
-                if (resp.IsSuccessStatusCode)
-                {
-                    break;
-                }
-
-                var isTransient = (int)resp.StatusCode is 429 or 503;
-                if (!isTransient || attempt == maxRetries)
-                {
-                    break;
-                }
-
-                var delay = TimeSpan.FromSeconds(Math.Pow(2, attempt + 1));
-                await Task.Delay(delay, linkedCts.Token).ConfigureAwait(false);
-            }
+            using var resp = outcome.Response;
 
             if (resp is null || !resp.IsSuccessStatusCode)
             {
-                var errorBody = resp is not null ? await resp.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false) : "No response";
+                var errorBody = resp is not null ? await resp.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false) : (outcome.TransportError ?? "No response");
                 var code = resp is not null ? (int)resp.StatusCode : 0;
                 var reason = resp?.ReasonPhrase ?? "Unknown";
-                return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: $"HTTP {code} {reason}: {errorBody}");
+                var errorText = resp is not null ? $"HTTP {code} {reason}: {errorBody}" : errorBody;
+                return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: errorText, FailureKind: outcome.FailureKind);
             }
 
             var respJson = await resp.Content.ReadAsStringAsync(linkedCts.Token).ConfigureAwait(false);
@@ -402,11 +419,125 @@ public sealed class ChatClassifier : IChatClient, IDisposable
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: $"Request timed out after {_options.RequestTimeoutSeconds}s");
+            return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: $"Request timed out after {_options.RequestTimeoutSeconds}s", FailureKind: ChatFailureKind.Transient);
         }
         catch (Exception ex)
         {
-            return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: ex.InnerException?.Message ?? ex.Message);
+            return new ToolChatResult(Reachable: false, Message: null, Model: null, Error: ex.InnerException?.Message ?? ex.Message, FailureKind: ChatFailureKind.Unreachable);
+        }
+    }
+
+    private sealed record SendOutcome(HttpResponseMessage? Response, ChatFailureKind FailureKind, string? TransportError);
+
+    /// <summary>
+    /// The one retry loop every completion call funnels through — shared
+    /// rather than duplicated between <see cref="CompleteAsync"/> and
+    /// <see cref="CompleteWithToolsAsync"/>, which had already drifted out of
+    /// sync once before (see <see cref="SupportsReasoningEffort"/>'s comment).
+    /// <para>
+    /// Paces every attempt (including retries) through the shared token
+    /// bucket, honours a provider's own <c>Retry-After</c> when it sends one,
+    /// and logs every real HTTP attempt — not just the logical call — since
+    /// a retried request still spends a real unit of the provider's quota.
+    /// </para>
+    /// <para>
+    /// A 429/503 that still fails after every retry is reported as
+    /// <see cref="ChatFailureKind.RateLimited"/> without trying to tell a
+    /// per-minute limit from a per-day one apart: both mean the same thing to
+    /// a caller running several requests in sequence — stop issuing more.
+    /// </para>
+    /// </summary>
+    private async Task<SendOutcome> SendWithRetryAsync(
+        Func<HttpRequestMessage> buildRequest,
+        string? job,
+        string model,
+        CancellationToken ct)
+    {
+        var jobName = job ?? "unknown";
+        HttpResponseMessage? resp = null;
+
+        for (int attempt = 0; attempt <= MaxTransientRetries; attempt++)
+        {
+            await WaitForTokenAsync(ct).ConfigureAwait(false);
+
+            using var req = buildRequest();
+            try
+            {
+                resp = await _client.SendAsync(req, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var message = ex.InnerException?.Message ?? ex.Message;
+                await LogAsync(jobName, model, httpStatus: null, ok: false, message, ct).ConfigureAwait(false);
+                return new SendOutcome(null, ChatFailureKind.Unreachable, message);
+            }
+
+            if (resp.IsSuccessStatusCode)
+            {
+                await LogAsync(jobName, model, (int)resp.StatusCode, ok: true, error: null, ct).ConfigureAwait(false);
+                return new SendOutcome(resp, ChatFailureKind.None, null);
+            }
+
+            var isTransient = (int)resp.StatusCode is 429 or 503;
+            await LogAsync(jobName, model, (int)resp.StatusCode, ok: false, resp.ReasonPhrase, ct).ConfigureAwait(false);
+
+            if (!isTransient || attempt == MaxTransientRetries)
+            {
+                return new SendOutcome(resp, isTransient ? ChatFailureKind.RateLimited : ChatFailureKind.Invalid, null);
+            }
+
+            var retryAfterRaw = resp.Headers.TryGetValues("Retry-After", out var values) ? values.FirstOrDefault() : null;
+            var delay = RetryAfterParser.Parse(retryAfterRaw, DateTimeOffset.UtcNow)
+                ?? TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, attempt + 1)));
+
+            resp.Dispose();
+            resp = null;
+            await Task.Delay(delay, ct).ConfigureAwait(false);
+        }
+
+        return new SendOutcome(resp, ChatFailureKind.RateLimited, null);
+    }
+
+    private async Task WaitForTokenAsync(CancellationToken ct)
+    {
+        await _rateLimitGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var wait = _tokenBucket.TimeUntilNextToken();
+            if (wait > TimeSpan.Zero)
+            {
+                await Task.Delay(wait, ct).ConfigureAwait(false);
+            }
+            _tokenBucket.Consume();
+        }
+        finally
+        {
+            _rateLimitGate.Release();
+        }
+    }
+
+    private async Task LogAsync(string job, string? model, int? httpStatus, bool ok, string? error, CancellationToken ct)
+    {
+        if (_requestLog is null)
+        {
+            return;
+        }
+
+        try
+        {
+            // A CancellationToken already fired (e.g. the request's own
+            // timeout) would make this write throw and mask the real error —
+            // logging must never be why a failure looks different than it is.
+            await _requestLog.RecordAsync(job, model, httpStatus, ok, error, CancellationToken.None).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Logging is diagnostic, not load-bearing. A write failure here
+            // must never surface as the AI call's own failure.
         }
     }
 
@@ -499,6 +630,7 @@ public sealed class ChatClassifier : IChatClient, IDisposable
 
     public void Dispose()
     {
+        _rateLimitGate.Dispose();
         if (_ownsClient)
         {
             _client.Dispose();
