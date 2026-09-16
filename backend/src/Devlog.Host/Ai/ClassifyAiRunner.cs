@@ -17,10 +17,11 @@ namespace Devlog.Host.Ai;
 /// </summary>
 public sealed class ClassifyAiRunner(
     IClassificationRuleStore ruleStore,
+    IClassifyAttemptStore attemptStore,
     IChatClient chatClient,
     AiOptions options) : IClassifyAiRunner
 {
-    public async Task<ClassifyAiResult> RunAsync(bool dryRun, int? limitOverride, CancellationToken ct = default)
+    public async Task<ClassifyAiResult> RunAsync(bool dryRun, int? limitOverride, bool force = false, CancellationToken ct = default)
     {
         var rules = await ruleStore.GetAllAsync(ct).ConfigureAwait(false);
 
@@ -32,13 +33,36 @@ public sealed class ClassifyAiRunner(
             .OrderByDescending(r => r.TotalSeconds)
             .ToList();
 
-        if (allPending.Count == 0)
+        var trulyPendingCount = allPending.Count;
+        if (trulyPendingCount == 0)
         {
             return new ClassifyAiResult(dryRun, true, 0, 0, 0, [], [], null);
         }
 
+        // classify-ai now runs on every dashboard Refresh (Phase 13.6). Without
+        // this, an identity the model already declined to answer confidently
+        // gets re-sent on every single click — this is where a 20/day request
+        // budget disappeared on 2026-09-15 without a single narrative written.
+        // trulyPendingCount is kept separate from the filtered list below so
+        // reporting still says how many identities genuinely await a verdict,
+        // not just how many this run is willing to ask about again.
+        var eligible = allPending;
+        if (!force)
+        {
+            var recentlyAttempted = await attemptStore.GetRecentlyAttemptedAsync(options.ClassifyRetryAfterDays, ct).ConfigureAwait(false);
+            if (recentlyAttempted.Count > 0)
+            {
+                eligible = allPending.Where(r => !recentlyAttempted.Contains(r.Site)).ToList();
+            }
+        }
+
+        if (eligible.Count == 0)
+        {
+            return new ClassifyAiResult(dryRun, true, 0, 0, trulyPendingCount, [], [], null);
+        }
+
         var limit = limitOverride ?? options.ClassifyBatchSize;
-        var batch = allPending.Take(limit).ToList();
+        var batch = eligible.Take(limit).ToList();
 
         var inputs = new List<IdentityInput>(batch.Count);
         foreach (var r in batch)
@@ -54,12 +78,13 @@ public sealed class ClassifyAiRunner(
             IdentityClassifierPrompt.SchemaName,
             IdentityClassifierPrompt.JsonSchema,
             reasoningEffort: "low",
-            ct).ConfigureAwait(false);
+            ct,
+            job: "classify").ConfigureAwait(false);
 
         if (!chatResult.Reachable || string.IsNullOrWhiteSpace(chatResult.Content))
         {
-            var reason = $"classifier unreachable, {allPending.Count} identities still pending: {chatResult.Error ?? "no response"}";
-            return new ClassifyAiResult(dryRun, false, 0, 0, allPending.Count, [], [], reason);
+            var reason = $"classifier unreachable, {trulyPendingCount} identities still pending: {chatResult.Error ?? "no response"}";
+            return new ClassifyAiResult(dryRun, false, 0, 0, trulyPendingCount, [], [], reason);
         }
 
         List<ValidatedVerdict> verdicts;
@@ -74,8 +99,8 @@ public sealed class ClassifyAiRunner(
         }
         catch (Exception ex)
         {
-            var reason = $"Malformed JSON from classifier ({ex.Message}), {allPending.Count} identities still pending.";
-            return new ClassifyAiResult(dryRun, true, 0, 0, allPending.Count, [], [], reason);
+            var reason = $"Malformed JSON from classifier ({ex.Message}), {trulyPendingCount} identities still pending.";
+            return new ClassifyAiResult(dryRun, true, 0, 0, trulyPendingCount, [], [], reason);
         }
 
         var nowUtc = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -96,7 +121,25 @@ public sealed class ClassifyAiRunner(
             outcomes.Add(new ClassifyAiVerdictOutcome(v.Identity, v.Category, v.Confidence, v.Reason));
         }
 
-        var totalRemaining = allPending.Count - (dryRun ? 0 : verdicts.Count);
+        // Only real discards get an attempt recorded — computed as "sent but
+        // not accepted" rather than by parsing the free-form discard reason
+        // strings. An unreachable/malformed run above never reaches here at
+        // all, so there is nothing to remember as "declined" for those.
+        // Skipped in dry runs: a preview shouldn't change what the next real
+        // run considers eligible.
+        if (!dryRun)
+        {
+            var acceptedIdentities = new HashSet<string>(verdicts.Select(v => v.Identity), StringComparer.OrdinalIgnoreCase);
+            foreach (var input in inputs)
+            {
+                if (!acceptedIdentities.Contains(input.Identity))
+                {
+                    await attemptStore.RecordAttemptAsync(input.Identity, nowUtc, reason: null, ct).ConfigureAwait(false);
+                }
+            }
+        }
+
+        var totalRemaining = trulyPendingCount - (dryRun ? 0 : verdicts.Count);
         return new ClassifyAiResult(dryRun, true, verdicts.Count, discards.Count, totalRemaining, outcomes, discards, null);
     }
 }

@@ -606,6 +606,8 @@ public static class DiagnosticCommands
         CommandLine.TrySetUtf8Console();
 
         var ai = host.Services.GetRequiredService<AiOptions>();
+        var requestLog = host.Services.GetRequiredService<ILlmRequestLog>();
+        var requestsToday = requestLog.CountTodayAsync().GetAwaiter().GetResult();
 
         Console.WriteLine("\n=== AI (LLM) ===");
         Console.WriteLine($"  enabled          : {(ai.Enabled ? "true" : "FALSE (all AI jobs disabled)")}");
@@ -615,6 +617,10 @@ public static class DiagnosticCommands
         Console.WriteLine($"  request timeout  : {ai.RequestTimeoutSeconds}s");
         Console.WriteLine($"  min confidence   : {ai.MinConfidence:F2}");
         Console.WriteLine($"  batch size       : {ai.ClassifyBatchSize}");
+        Console.WriteLine($"  requests/minute  : {ai.RequestsPerMinute}");
+        // devlog's own count, not the provider's — the two can drift if the
+        // key is used elsewhere (a browser tab, another tool).
+        Console.WriteLine($"  requests today   : {requestsToday} / {ai.RequestsPerDay} (devlog's own count)");
         Console.WriteLine($"  jobs             : classify:{(ai.Jobs.Classify ? "on" : "off")}  narrate:{(ai.Jobs.Narrate ? "on" : "off")}  digest:{(ai.Jobs.Digest ? "on" : "off")}  ask:{(ai.Jobs.Ask ? "on" : "off")}");
 
         if (!ai.Enabled)
@@ -673,9 +679,10 @@ public static class DiagnosticCommands
 
         var limit = int.TryParse(cli.Value("--limit"), out var l) && l > 0 ? l : (int?)null;
         var dryRun = cli.Has("--dry-run");
+        var force = cli.Has("--force");
 
         var runner = host.Services.GetRequiredService<ClassifyAiRunner>();
-        var result = runner.RunAsync(dryRun, limit).GetAwaiter().GetResult();
+        var result = runner.RunAsync(dryRun, limit, force).GetAwaiter().GetResult();
 
         if (result.UnreachableReason is not null)
         {
@@ -741,7 +748,7 @@ public static class DiagnosticCommands
         var runner = host.Services.GetRequiredService<NarrateRunner>();
         var result = runner.RunAsync(since, limit, dryRun, force).GetAwaiter().GetResult();
 
-        if (result.Outcomes.Count == 0)
+        if (result.Outcomes.Count == 0 && !result.StoppedEarly)
         {
             Console.WriteLine("\nNo sessions needing narration in the selected window.\n");
             return 0;
@@ -767,6 +774,12 @@ public static class DiagnosticCommands
             Console.WriteLine($"    \"{n.Narrative}\"");
             Console.WriteLine($"    Evidence: {string.Join(" | ", n.Evidence)}");
             Console.WriteLine();
+        }
+
+        if (result.StoppedEarly)
+        {
+            Console.WriteLine($"  Stopped early — provider rate limit reached: {result.StopReason}");
+            Console.WriteLine("  Remaining eligible sessions were left untouched and will be picked up next run.\n");
         }
 
         Console.WriteLine($"\n  Finished: {result.AcceptedCount} accepted, {result.RejectedCount} rejected/skipped.\n");

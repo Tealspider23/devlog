@@ -89,11 +89,24 @@ public sealed class NarrateRunner(
                 SessionNarratorPrompt.BatchSchemaName,
                 SessionNarratorPrompt.BatchJsonSchema,
                 reasoningEffort: "high",
-                ct).ConfigureAwait(false);
+                ct,
+                job: "narrate").ConfigureAwait(false);
 
             if (!chatResult.Reachable || string.IsNullOrWhiteSpace(chatResult.Content))
             {
                 var reason = chatResult.Error ?? "no response";
+
+                // A rate-limited batch means the provider is telling every
+                // remaining batch "no" for the same reason — stopping here
+                // leaves the untried sessions simply un-narrated (picked up
+                // next run) instead of marking all of them rejected, which is
+                // how a 5-batch backlog became "44 sessions skipped" instead
+                // of an honest partial run.
+                if (chatResult.FailureKind == ChatFailureKind.RateLimited)
+                {
+                    return new NarrateResult(dryRun, accepted, rejected, outcomes, StoppedEarly: true, StopReason: reason);
+                }
+
                 foreach (var s in chunk)
                 {
                     rejected++;

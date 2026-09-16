@@ -83,12 +83,23 @@ public sealed class WeeklyWinRunner(
                 DigestProsePrompt.SchemaName,
                 DigestProsePrompt.JsonSchema,
                 reasoningEffort: "high",
-                ct).ConfigureAwait(false);
+                ct,
+                job: "weekly-win").ConfigureAwait(false);
 
             if (!chatResult.Reachable || string.IsNullOrWhiteSpace(chatResult.Content))
             {
-                outcomes.Add(new WeekOutcome(weekFrom, weekTo, false, false, null,
-                    chatResult.Error ?? "AI provider returned no content."));
+                var reason = chatResult.Error ?? "AI provider returned no content.";
+
+                // Same reasoning as NarrateRunner: a rate-limited week means
+                // every remaining week of the month would fail the same way,
+                // so stop rather than let each one spend more of the same
+                // budget it is waiting for.
+                if (chatResult.FailureKind == ChatFailureKind.RateLimited)
+                {
+                    return new WeeklyWinResult(outcomes, StoppedEarly: true, StopReason: reason);
+                }
+
+                outcomes.Add(new WeekOutcome(weekFrom, weekTo, false, false, null, reason));
                 continue;
             }
 
