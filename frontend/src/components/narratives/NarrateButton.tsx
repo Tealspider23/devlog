@@ -5,9 +5,10 @@ import { PillButton } from '../common/PillButton'
 import type { NarrateResultDto } from '../../types/api'
 
 /**
- * The narrate trigger. One model call per session, sequential, unbounded —
- * so a preflight confirmation is mandatory, naming both the cost and the
- * privacy disclosure. There's no endpoint that reports how many sessions are
+ * The narrate trigger. One model call per batch of sessions (not per
+ * session — see AiOptions.NarrateBatchSize), sequential, unbounded — so a
+ * preflight confirmation is mandatory, naming both the cost and the privacy
+ * disclosure. There's no endpoint that reports how many sessions are
  * eligible before running, so the confirmation is honest about that rather
  * than inventing a count.
  */
@@ -67,6 +68,11 @@ export function NarrateButton({
         <div className="max-w-sm rounded-lg border border-line bg-raised px-3 py-2 text-right text-xs">
           {result.dryRun ? (
             <span className="text-muted">Preview — nothing was saved. {result.acceptedCount} would be written.</span>
+          ) : result.stoppedEarly ? (
+            <span className="text-warn">
+              Wrote {result.acceptedCount} stories, then stopped — provider rate limit reached. The rest are
+              untouched, not skipped; run again later to pick them up.
+            </span>
           ) : result.acceptedCount > 0 && result.rejectedCount === 0 ? (
             <span className="text-ink">Wrote {result.acceptedCount} stories.</span>
           ) : result.acceptedCount > 0 ? (

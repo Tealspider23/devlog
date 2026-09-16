@@ -184,6 +184,8 @@ export interface AiStatusDto {
   endpoint: string | null
   offMachine: boolean | null
   host: string | null
+  requestsToday: number
+  requestsPerDay: number
 }
 
 export interface AiModelsDto {
@@ -259,6 +261,9 @@ export interface NarrateResultDto {
   acceptedCount: number
   rejectedCount: number
   outcomes: NarrateOutcomeDto[]
+  /** True when the run stopped before attempting every eligible session because the provider rate-limited it — the rest are untouched, not skipped. */
+  stoppedEarly: boolean
+  stopReason: string | null
 }
 
 export interface WeeklyWinsRequestDto {
@@ -287,11 +292,14 @@ export interface WeekOutcomeDto {
 
 export interface WeeklyWinsResultDto {
   weeks: WeekOutcomeDto[]
+  stoppedEarly: boolean
+  stopReason: string | null
 }
 
 export interface ClassifyAiRequestDto {
   dryRun?: boolean
   limit?: number
+  force?: boolean
 }
 
 export interface ClassifyAiVerdictOutcomeDto {

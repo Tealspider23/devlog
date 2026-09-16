@@ -100,6 +100,12 @@ export function Settings() {
           <span className="text-muted">{status?.configuredModel ?? '—'}</span>
         </div>
         <div className="flex items-center justify-between text-xs">
+          <span className="text-faint">Requests today</span>
+          <span className="text-muted">
+            {status ? `${status.requestsToday} / ${status.requestsPerDay} (devlog's own count)` : '—'}
+          </span>
+        </div>
+        <div className="flex items-center justify-between text-xs">
           <span className="text-faint">API key</span>
           <span className="text-muted">{status?.apiKeyPresent ? 'present' : 'not found'}</span>
         </div>

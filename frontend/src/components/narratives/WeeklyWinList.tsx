@@ -52,6 +52,7 @@ export function WeeklyWinList({ from, to, wins }: { from: string; to: string; wi
   })
 
   const hasExisting = wins.length > 0
+  const stoppedEarly = mutation.data?.stoppedEarly
   const button = confirming ? (
     <div className="flex flex-col items-end gap-2">
       <p className="max-w-md text-right text-xs text-faint">
@@ -85,6 +86,12 @@ export function WeeklyWinList({ from, to, wins }: { from: string; to: string; wi
         <span className="text-xs text-faint">Story of the month</span>
         {button}
       </div>
+      {stoppedEarly && (
+        <p className="text-xs text-warn">
+          Stopped early — provider rate limit reached: {mutation.data?.stopReason}. Remaining weeks are
+          untouched; run again later to pick them up.
+        </p>
+      )}
       <div className="flex flex-col gap-4">
         {wins.map((w) => (
           <WeekCard key={`${w.weekFrom}-${w.weekTo}`} win={w} />
